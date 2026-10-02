@@ -9,13 +9,18 @@
 > *"The tragedy of lost things isn't that they are gone; it's that they are almost always within 500 meters of someone who wants to give them back. What's missing is not human kindness, but a protocol of trust."*
 > — **The LostNet Paradox**
 
+### 💎 The Three LostNet Axioms
+1. **“LostNet doesn't move the item — it moves the trust.”** (Physical items stay hyper-local; cryptographic coordination moves the custody).
+2. **“We didn't invent the lost-property desk. We gave it an API.”** (Stations already have statutory custody duty; we replace paper ledgers with instant digital scan terminals).
+3. **“The barista doesn't guard anything. The bin does — and the board keeps watch.”** (Zero partner liability; camera-monitored bins with timestamped deposit condition snapshots).
+
 ---
 
 ## 🌟 Overview
 
 **LostNet** is a self-healing municipal operating system and interactive living map where lost items don't sit silently in dusty ledgers or scam-ridden forums. Instead, items have **gravitational mass and pull toward each other across space and time**.
 
-Built for the **DEV × Sanity Challenge 2026** (*Path Two: "Vibe-Code Something Strange"*), LostNet replaces broken, adversarial lost-and-found systems with **autonomous Bayesian resonance**, **zero-knowledge blind proof gates**, **safe municipal drop-off hubs**, and **airline-grade digital return passes**.
+Built for the **DEV × Sanity Challenge 2026** (*Path Two: "Vibe-Code Something Strange"*), LostNet replaces broken, adversarial lost-and-found systems with **autonomous Bayesian resonance**, **blind split-knowledge challenge gates**, **dual-tier safe harbor liability armor**, and **airline-grade digital return passes**.
 
 ---
 
@@ -26,16 +31,19 @@ Built for the **DEV × Sanity Challenge 2026** (*Path Two: "Vibe-Code Something 
 - **Calibrated Bayesian Log-Odds (LLR)**: Combines geospatial Haversine distance, temporal decay, taxonomic resonance, and **Inverse Document Frequency (IDF)** token rarity weighting. Contradictions (e.g., color/material mismatches) are heavily penalized.
 - **The Margin Rule ($\Delta S = S_1 - S_2$)**: Eliminates the *"50 black keys"* problem. If multiple items are nearly identical, the system detects cluster ambiguity instead of auto-proposing false positives.
 
-### 2. 🛡️ Safe Harbor Handover Protocol (Zero Contact Leakage)
-- **Zero Personal Contact**: Eliminates the danger of meeting strangers in parking lots or leaking personal phone numbers on Craigslist/WhatsApp.
-- **Neutral Safe Harbors**: Finders leave items at verified public custody desks:
-  - 🚇 **Indiranagar Metro (Gate 2 Customer Desk)** — *CCTV Monitored • Station Officer Custody*
-  - ☕ **Starbucks 100ft Road (Front Counter)** — *Community Partner • Neutral High-Traffic Desk*
-  - 🚓 **Indiranagar Police Assistance Kiosk** — *High Security • 24/7 Custody Verification*
+### 2. 🛡️ Safe Harbor Handover Protocol & Liability Armor (Active vs. Passive)
+Solves the fundamental failure mode of lost-and-found projects: **The Attendant Liability Paradox**. We divide physical safe harbors into two clean legal classes:
+- **🏛️ Active Statutory Desks (Metro & Police Stations)**:
+  - Institutions with an existing statutory lost-property duty. We create zero new liability — we simply provide an API to replace paper registers with token lookups.
+  - *Indiranagar Metro Gate 2 Customer Desk* & *Police Assistance Kiosk*.
+- **☕ Passive Monitored Bins (Cafés & Stores)**:
+  - Baristas and counter staff never touch items or accept custody. A camera-covered, labeled bin holds the object.
+  - The finder snaps a **deposit condition snapshot**; the board keeps watch. Attendants are shielded with an "as-deposited" receipt alibi.
 
-### 3. 🔐 Zero-Knowledge Blind Ownership Challenges
-- Claimants register a **private distinguishing mark** (e.g., *"Engraved initial 'R' on keychain"* or *"Small red sacred knot on key fob"*).
-- The board **never publicly reveals** this challenge. Only the true owner who answers the unposted challenge can unlock and retrieve the item.
+### 3. 🔐 Blind Split-Knowledge Challenge Gate (Say Zero-Knowledge & Mean It)
+- **Zero Plaintext Leakage**: The terminal attendant **never sees the secret answer beforehand**.
+- **The Protocol**: Attendant asks the claimant an open verbal challenge (*"What private engraving or identifying feature is on your item?"*), types the spoken answer into the terminal, and the system verifies the input against the cryptographic record.
+- **2-Strike Fraud Lockout**: If two incorrect answers are entered, the terminal locks down automatically, freezing handover and impounding the item for station officer ID escalation.
 
 ### 4. 🎟️ The Airline Digital Return Pass
 - Once a match is confirmed, an airline-style **Digital Return Pass** is generated:
@@ -43,11 +51,11 @@ Built for the **DEV × Sanity Challenge 2026** (*Path Two: "Vibe-Code Something 
   - Drop-off location, verified proof summary, and custody stage tracker.
   - Zero app install required: works directly in any mobile browser.
 
-### 5. 🏢 Safe Harbor Custody Desk Portal
-- A dedicated **Custody Attendant Terminal** for station officers and baristas:
-  - Live token lookups (`#LN-8492`).
-  - Displays the secret ownership challenge question.
-  - 3-point attendant checklist (*QR Scanned*, *Secret Answered*, *Condition Checked*).
+### 5. 🏢 Safe Harbor Custody Desk Portal (Terminal #04)
+- A dedicated **Custody Attendant Terminal** for station officers:
+  - Live token lookups (`#LN-8492`) with scannable QR integration.
+  - Blind split-knowledge challenge verification with anti-fraud attempt metering.
+  - 3-point officer checklist (*QR Scanned*, *Challenge Passed*, *Condition Inspected*).
   - One-click digital sign-off and permanent custody release certificate recorded directly into Sanity Content Lake.
 
 ---
@@ -153,7 +161,7 @@ npm run report
 2. **The Physics**: Click **"Auto Demo"** — watch the lost Honda key gravitationally pull toward the found car key 150 meters away with sound synthesis and 79% resonance.
 3. **Safe Harbor Protocol**: Select a neutral drop-off desk (*Indiranagar Metro Gate 2*) and confirm.
 4. **The Boarding Pass**: Jump to `/reunions` and open the **Digital Return Pass** with the scannable `#LN-XXXX` QR token.
-5. **The Custody Desk**: Click **"Custody Desk"** in the navbar, enter the token, quiz the secret proof challenge, and digitally sign the physical custody release certificate!
+5. **The Custody Desk**: Click **"Custody Desk"** in the navbar, enter the token, verbally quiz the claimant through the Blind Split-Knowledge Challenge Gate, test the 2-strike lockout guard, and digitally sign the physical custody release certificate!
 
 ---
 

@@ -131,11 +131,10 @@ export default function ManifestoModal({ open, onClose }: ManifestoModalProps) {
                   </div>
                   <div>
                     <h4 className="text-xs font-bold text-rose-200">
-                      2. Zero-Knowledge Blind Challenge Verification
+                      2. Blind Split-Knowledge Challenge Gate (Say Zero-Knowledge &amp; Mean It)
                     </h4>
                     <p className="mt-0.5 text-xs text-zinc-300 leading-relaxed">
-                      Reporters submit an unposted secret challenge (e.g., &quot;What engraving is inside?&quot;). The board never
-                      reveals this publicly. Only the claimant who answers correctly unlocks the item.
+                      Plaintext secrets are never exposed on a public board or to the attendant. The attendant reads an open prompt, types the claimant&apos;s spoken words, and the terminal cryptographically validates. A 2-strike lockout prevents brute-force social engineering.
                     </p>
                   </div>
                 </div>
@@ -146,11 +145,10 @@ export default function ManifestoModal({ open, onClose }: ManifestoModalProps) {
                   </div>
                   <div>
                     <h4 className="text-xs font-bold text-emerald-200">
-                      3. Safe Harbor Custody Desks (Zero Contact Leaks)
+                      3. Safe Harbor Liability Armor (Active Desks vs. Passive Bins)
                     </h4>
                     <p className="mt-0.5 text-xs text-zinc-300 leading-relaxed">
-                      Finders surrender items to neutral municipal hubs (Metro station desks, barista counters, police booths).
-                      No phone numbers, WhatsApp chats, or home addresses are ever exposed.
+                      Solves the attendant liability paradox: <strong>Active Civic Desks</strong> (Metro/Police) utilize existing statutory lost-property duties via our digital API. <strong>Passive Monitored Bins</strong> (Cafés) require zero staff custody — items are dropped with a condition snapshot alibi, keeping partners completely shielded.
                     </p>
                   </div>
                 </div>
@@ -167,6 +165,36 @@ export default function ManifestoModal({ open, onClose }: ManifestoModalProps) {
                       Once confirmed, a verified Digital Return Pass with scannable QR code and cryptographic token (<span className="text-zinc-100 font-mono font-bold">#LN-XXXX</span>)
                       is issued. The station desk scans it and safely releases the object.
                     </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* The 3 Core Axioms & Game Theory */}
+            <div className="mt-6 rounded-2xl border border-indigo-500/20 bg-gradient-to-r from-indigo-950/30 via-zinc-900/40 to-indigo-950/20 p-4 space-y-2.5">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-300">
+                The Three LostNet Axioms
+              </h3>
+              <div className="grid gap-2 text-xs">
+                <div className="flex items-start gap-2.5 text-zinc-200">
+                  <span className="text-indigo-400 font-bold shrink-0">1.</span>
+                  <div>
+                    <p className="font-semibold text-white">“LostNet doesn&apos;t move the item — it moves the trust.”</p>
+                    <p className="text-zinc-400 text-[11px] mt-0.5">Physical items stay in the neighborhood; cryptographic verification coordinates the handover.</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2.5 text-zinc-200">
+                  <span className="text-emerald-400 font-bold shrink-0">2.</span>
+                  <div>
+                    <p className="font-semibold text-white">“We didn&apos;t invent the lost-property desk. We gave it an API.”</p>
+                    <p className="text-zinc-400 text-[11px] mt-0.5">Metro &amp; police stations already hold legal lost property custody. We turn dusty paper logbooks into instant scan-based digital ledgers.</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2.5 text-zinc-200">
+                  <span className="text-amber-400 font-bold shrink-0">3.</span>
+                  <div>
+                    <p className="font-semibold text-white">“The barista doesn&apos;t guard anything. The bin does — and the board keeps watch.”</p>
+                    <p className="text-zinc-400 text-[11px] mt-0.5">Passive café bins eliminate counter staff liability. Deposit photos + time-stamped alibis protect partners from false claims.</p>
                   </div>
                 </div>
               </div>

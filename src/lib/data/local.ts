@@ -203,7 +203,7 @@ class LocalProvider implements LostNetData {
       publishedAt: new Date().toISOString(),
       safeHarbor: safePoint,
       claimToken: token,
-      custodyState: "released",
+      custodyState: "deposited",
       verifiedChallengeProof: challengeProof,
     };
   }

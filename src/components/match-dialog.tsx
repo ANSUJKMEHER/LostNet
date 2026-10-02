@@ -65,29 +65,41 @@ interface SafeHarborOption {
   desc: string;
   badge: string;
   type: SafeHarborType;
+  liabilityClass: "active" | "passive";
+  liabilityBadge: string;
+  liabilityDetail: string;
 }
 
 const DEFAULT_SAFE_HARBORS: SafeHarborOption[] = [
   {
     id: "metro",
     name: "Indiranagar Metro (Gate 2 Customer Desk)",
-    desc: "CCTV Monitored · Station Officer Custody",
-    badge: "Official Safe Harbor",
+    desc: "CCTV Monitored · Station Officer Duty · Digital Ledger API",
+    badge: "Official Civic Desk",
     type: "metro",
+    liabilityClass: "active",
+    liabilityBadge: "🏛️ Active Civic Desk",
+    liabilityDetail: "Statutory lost-property custody. Station officers already have legal duty; LostNet provides the scan-based digital ledger.",
   },
   {
     id: "cafe",
-    name: "Starbucks 100ft Road (Front Barista Counter)",
-    desc: "Community Partner · Neutral High-Traffic Desk",
-    badge: "Community Hub",
+    name: "Starbucks 100ft Road (Safe Harbor Monitored Shelf)",
+    desc: "Staff guards nothing · QR-Monitored Bin · The board keeps watch",
+    badge: "Zero-Liability Bin",
     type: "cafe",
+    liabilityClass: "passive",
+    liabilityBadge: "☕ Passive Monitored Bin",
+    liabilityDetail: "Zero barista liability. Finder deposits directly into labeled bin with photo condition snapshot. Counter staff guards nothing.",
   },
   {
     id: "police",
     name: "Indiranagar Police Assistance Kiosk",
-    desc: "24/7 Guarded · High-Security Verification",
+    desc: "24/7 Guarded · High-Value Item Escrow · Digital Handshake",
     badge: "High Security",
     type: "police",
+    liabilityClass: "active",
+    liabilityBadge: "🚓 Active Police Desk",
+    liabilityDetail: "Official municipal authority. High-security custody for laptops and valuables backed by police station release receipt.",
   },
 ];
 
@@ -111,6 +123,9 @@ export default function MatchDialog({ open, a, b, match, busy, onConfirm, onReje
         desc: "Preferred location requested in report",
         badge: "Report Preferred",
         type: "custom" as const,
+        liabilityClass: "passive" as const,
+        liabilityBadge: "📍 Custom Safe Drop",
+        liabilityDetail: "Community agreed drop-off point specified during incident reporting.",
       });
     }
     return list;
@@ -317,7 +332,7 @@ export default function MatchDialog({ open, a, b, match, busy, onConfirm, onReje
                         type="button"
                         onClick={() => setSelectedSpot(opt.name)}
                         className={cn(
-                          "group flex items-start gap-2.5 rounded-xl border p-2.5 text-left transition-all",
+                          "group flex items-start gap-2.5 rounded-xl border p-2.5 text-left transition-all cursor-pointer",
                           isSelected
                             ? "border-indigo-400/80 bg-indigo-500/15 shadow-md shadow-indigo-950/50"
                             : "border-white/5 bg-white/[0.02] hover:border-white/15 hover:bg-white/[0.05]"
@@ -335,13 +350,28 @@ export default function MatchDialog({ open, a, b, match, busy, onConfirm, onReje
                           {opt.type === "custom" && <MapPin className="h-4 w-4" />}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between gap-1">
+                          <div className="flex flex-wrap items-center justify-between gap-1">
                             <span className={cn("text-xs font-semibold leading-tight", isSelected ? "text-zinc-100" : "text-zinc-300")}>
                               {opt.name}
                             </span>
-                            {isSelected && <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-indigo-400" />}
+                            <div className="flex items-center gap-1.5">
+                              <span
+                                className={cn(
+                                  "rounded-full px-2 py-0.5 text-[10px] font-semibold border",
+                                  opt.liabilityClass === "active"
+                                    ? "bg-indigo-500/20 border-indigo-400/30 text-indigo-300"
+                                    : "bg-emerald-500/20 border-emerald-400/30 text-emerald-300"
+                                )}
+                              >
+                                {opt.liabilityBadge}
+                              </span>
+                              {isSelected && <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-indigo-400" />}
+                            </div>
                           </div>
                           <p className="mt-0.5 text-[11px] text-zinc-400 leading-snug">{opt.desc}</p>
+                          <p className="mt-1 text-[10px] text-zinc-500 italic leading-tight">
+                            {opt.liabilityDetail}
+                          </p>
                         </div>
                       </button>
                     );

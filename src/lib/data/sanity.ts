@@ -321,7 +321,7 @@ export class SanityProvider implements LostNetData {
           publishedAt: decidedAt,
           safeHarbor: safePoint,
           claimToken: token,
-          custodyState: "released",
+          custodyState: "deposited",
           verifiedChallengeProof: challengeProof,
         });
     }
