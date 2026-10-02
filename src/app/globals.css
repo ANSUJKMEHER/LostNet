@@ -1,0 +1,91 @@
+@import "tailwindcss";
+
+:root {
+  --ln-bg: #09090b;
+  --ln-ink: #fafafa;
+  --ln-lost: #818cf8;   /* indigo — lost items */
+  --ln-found: #fbbf24;  /* amber — found items */
+  --ln-love: #fb7185;   /* rose — reunited */
+}
+
+html,
+body {
+  height: 100%;
+  background: var(--ln-bg);
+  color: var(--ln-ink);
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* ---------- map ---------- */
+.maplibregl-canvas {
+  outline: none;
+}
+
+.ln-map-cursor-pin {
+  cursor: crosshair;
+}
+
+/* ---------- markers ---------- */
+@keyframes ln-pulse {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.9;
+  }
+  70% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+.ln-marker-pulse {
+  animation: ln-pulse 2.4s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
+}
+
+@keyframes ln-burst {
+  0% {
+    transform: scale(0.3);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(3.2);
+    opacity: 0;
+  }
+}
+
+.ln-burst {
+  animation: ln-burst 0.9s ease-out forwards;
+}
+
+/* ---------- glass panels ---------- */
+.ln-glass {
+  background: rgba(9, 9, 11, 0.82);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ln-ring-faint {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* ---------- fallback board view (no WebGL) ---------- */
+.ln-board-grid {
+  background-color: #0c0c10;
+  background-image:
+    radial-gradient(circle, rgba(255, 255, 255, 0.14) 1px, transparent 1.5px);
+  background-size: 28px 28px;
+}
+
+/* ---------- scrollbars ---------- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
