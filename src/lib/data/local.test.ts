@@ -97,3 +97,94 @@ describe("LocalProvider match lifecycle", () => {
     expect(updated.status).toBe("published");
   });
 });
+
+describe("Ownership challenge is a real gate", () => {
+  const newLost = () => ({
+    kind: "lost" as const,
+    title: "Black Honda key with a red tag",
+    description: "Black car key with a small red keychain.",
+    categoryId: "keys",
+    placeLabel: "Sony World signal",
+    lat: 12.9731,
+    lng: 77.6415,
+    occurredAt: "2026-09-29T08:00:00.000Z",
+    colors: ["black", "red"],
+    materials: ["metal"],
+    secretChallenge: "What is engraved on the keyring?",
+    secretAnswer: "the letter R",
+  });
+
+  it("never hands the salt or the hash back to a caller", async () => {
+    const { item } = await provider.createItem(newLost());
+    expect(item.secretChallenge).toBe("What is engraved on the keyring?");
+    expect((item as unknown as Record<string, unknown>).secretAnswerHash).toBeUndefined();
+    expect((item as unknown as Record<string, unknown>).secretSalt).toBeUndefined();
+
+    const read = await provider.getItem(item._id);
+    expect((read as unknown as Record<string, unknown>).secretAnswerHash).toBeUndefined();
+    expect((read as unknown as Record<string, unknown>).secretSalt).toBeUndefined();
+  });
+
+  it("accepts the right answer, but only through verifyClaim", async () => {
+    const { decision, matches } = await provider.createItem(newLost());
+    expect(decision.top?.item._id).toBe("found-01");
+    const { reunion } = await provider.decideMatch(matches[0]._id, "confirmed", {
+      mode: "public",
+      label: "Indiranagar Metro Station — Gate 2",
+      time: "As soon as we can",
+    });
+
+    expect(reunion).toBeDefined();
+    expect(reunion!.claimToken).toMatch(/^#LN-\d{4}$/);
+    // The question is snapshotted for the desk; the answer never appears anywhere.
+    expect(reunion!.challengeQuestion).toBe("What is engraved on the keyring?");
+    expect(JSON.stringify(reunion)).not.toContain("the letter R");
+    expect(reunion!.handover?.mode).toBe("public");
+
+    const ok = await provider.verifyClaim(reunion!._id, "The Letter R");
+    expect(ok.verified).toBe(true);
+    expect(ok.hasChallenge).toBe(true);
+  });
+
+  it("locks after two wrong answers and reports no challenge when none was set", async () => {
+    const { matches } = await provider.createItem(newLost());
+    const { reunion } = await provider.decideMatch(matches[0]._id, "confirmed", { mode: "finder" });
+
+    const wrong1 = await provider.verifyClaim(reunion!._id, "blue");
+    expect(wrong1.verified).toBe(false);
+    expect(wrong1.locked).toBe(false);
+
+    const wrong2 = await provider.verifyClaim(reunion!._id, "green");
+    expect(wrong2.locked).toBe(true);
+
+    // Correct answer after lockout must not succeed.
+    const afterLock = await provider.verifyClaim(reunion!._id, "the letter R");
+    expect(afterLock.verified).toBe(false);
+
+    // An item with no question is reported honestly, not faked.
+    const { matches: plainMatches } = await provider.createItem({
+      ...newLost(),
+      secretChallenge: undefined,
+      secretAnswer: undefined,
+      title: "Plain grey backpack",
+      description: "Grey canvas backpack left in an auto.",
+      categoryId: "bag",
+    });
+    if (plainMatches[0]) {
+      const { reunion: plain } = await provider.decideMatch(plainMatches[0]._id, "confirmed", { mode: "finder" });
+      expect(plain!.challengeQuestion).toBeUndefined();
+      const res = await provider.verifyClaim(plain!._id, "anything");
+      expect(res.hasChallenge).toBe(false);
+      expect(res.verified).toBe(false);
+    }
+  });
+
+  it("resolves a reunion from the token a claimant presents", async () => {
+    const { matches } = await provider.createItem(newLost());
+    const { reunion } = await provider.decideMatch(matches[0]._id, "confirmed", { mode: "finder" });
+
+    const found = await provider.getReunionByToken(reunion!.claimToken!.toLowerCase());
+    expect(found?._id).toBe(reunion!._id);
+    expect(await provider.getReunionByToken("#LN-0000")).toBeNull();
+  });
+});

@@ -1,5 +1,6 @@
 import { createClient, type SanityClient } from "@sanity/client";
 import type {
+  HandoverPlan,
   Item,
   ItemStatus,
   MatchDecision,
@@ -12,19 +13,22 @@ import type {
 import { DEFAULT_SETTINGS } from "../types";
 import { scoreCandidates } from "../matcher";
 import { buildReunionContent, pairKey } from "../reunion";
-import { SEED_ITEMS } from "../seed";
+import { hashAnswer, newClaimToken, newSalt, stripItemSecrets, stripReunionSecrets, verifyAnswer } from "../secret";
 import type { LostNetData } from "./provider";
 
 /**
  * SanityProvider — the real backend.
  *
- * Sanity document types (see src/sanity/schema in Phase 5):
+ * Sanity document types (see src/sanity/schema.ts):
  *   lostFoundItem, match, reunion, settings, category
  *
  * GROQ projections below map those documents onto the domain types in
  * lib/types.ts. The matching engine itself stays in lib/matcher.ts and is
- * provider-independent: Sanity supplies structured candidates, the engine
- * scores them, and match documents are written back with the breakdown.
+ * provider-independent.
+ *
+ * Secrets: an item's `secretSalt` and `secretAnswerHash` are projected only
+ * inside verifyClaim(), which runs on the server. Every other read path maps
+ * through mapItem(), which strips them — so the hash cannot leak to a browser.
  */
 
 type SanityItemDoc = {
@@ -42,6 +46,8 @@ type SanityItemDoc = {
   status?: ItemStatus;
   imageUrl?: string;
   secretChallenge?: string;
+  secretSalt?: string;
+  secretAnswerHash?: string;
   handoverNote?: string;
 };
 
@@ -52,13 +58,18 @@ const ITEM_PROJECTION = `{
   "location": location,
   occurredAt, _createdAt,
   colors, materials, status,
-  imageUrl, secretChallenge, handoverNote
+  imageUrl, secretChallenge, secretSalt, secretAnswerHash, handoverNote
 }`;
 
 const MATCH_PROJECTION = `{
   _id,
   "itemAId": itemA->_id, "itemBId": itemB->_id,
   score, confidence, breakdown, reasons, status, _createdAt, decidedAt, decidedBy
+}`;
+
+const REUNION_PROJECTION = `{
+  _id, "matchId": match._ref, title, story, status, _createdAt, publishedAt,
+  safeHarbor, handover, claimToken, custodyState, challengeQuestion, claimAttempts, verifiedAt
 }`;
 
 type SanityMatchDoc = {
@@ -73,6 +84,23 @@ type SanityMatchDoc = {
   _createdAt: string;
   decidedAt?: string;
   decidedBy?: string;
+};
+
+type SanityReunionDoc = {
+  _id: string;
+  matchId: string | null;
+  title: string;
+  story: string;
+  status: "draft" | "published";
+  _createdAt: string;
+  publishedAt?: string;
+  safeHarbor?: string;
+  handover?: HandoverPlan;
+  claimToken?: string;
+  custodyState?: "deposited" | "verified" | "released";
+  challengeQuestion?: string;
+  claimAttempts?: number;
+  verifiedAt?: string;
 };
 
 function mapMatch(d: SanityMatchDoc): MatchRecord {
@@ -92,7 +120,50 @@ function mapMatch(d: SanityMatchDoc): MatchRecord {
   };
 }
 
+/** Public shape — secrets never survive this function. */
 function mapItem(doc: SanityItemDoc): Item {
+  return stripItemSecrets({
+    _id: doc._id,
+    kind: doc.kind,
+    title: doc.title,
+    description: doc.description,
+    categoryId: doc.categoryId ?? "other",
+    placeLabel: doc.placeLabel,
+    location: doc.location ?? { lat: 0, lng: 0 },
+    occurredAt: doc.occurredAt,
+    reportedAt: doc._createdAt,
+    colors: doc.colors ?? [],
+    materials: doc.materials ?? [],
+    status: doc.status ?? "open",
+    imageUrl: doc.imageUrl,
+    secretChallenge: doc.secretChallenge,
+    secretSalt: doc.secretSalt,
+    secretAnswerHash: doc.secretAnswerHash,
+    handoverNote: doc.handoverNote,
+  });
+}
+
+function mapReunion(d: SanityReunionDoc): Reunion {
+  return {
+    _id: d._id,
+    matchId: d.matchId ?? "",
+    title: d.title,
+    story: d.story,
+    status: d.status,
+    createdAt: d._createdAt,
+    publishedAt: d.publishedAt,
+    safeHarbor: d.safeHarbor,
+    handover: d.handover,
+    claimToken: d.claimToken,
+    custodyState: d.custodyState,
+    challengeQuestion: d.challengeQuestion,
+    claimAttempts: d.claimAttempts ?? 0,
+    verifiedAt: d.verifiedAt,
+  };
+}
+
+/** Internal only: keeps the salt + hash so verifyClaim can compare on the server. */
+function mapItemRaw(doc: SanityItemDoc): Item {
   return {
     _id: doc._id,
     kind: doc.kind,
@@ -108,6 +179,8 @@ function mapItem(doc: SanityItemDoc): Item {
     status: doc.status ?? "open",
     imageUrl: doc.imageUrl,
     secretChallenge: doc.secretChallenge,
+    secretSalt: doc.secretSalt,
+    secretAnswerHash: doc.secretAnswerHash,
     handoverNote: doc.handoverNote,
   };
 }
@@ -155,7 +228,7 @@ export class SanityProvider implements LostNetData {
 
   async getItem(id: string): Promise<Item | null> {
     const doc = await this.client.fetch<SanityItemDoc | null>(
-      `*[_id == $id][0]${ITEM_PROJECTION}`,
+      `*[_type == "lostFoundItem" && _id == $id][0]${ITEM_PROJECTION}`,
       { id },
     );
     return doc ? mapItem(doc) : null;
@@ -172,6 +245,18 @@ export class SanityProvider implements LostNetData {
   async createItem(
     input: NewItemInput,
   ): Promise<{ item: Item; decision: MatchDecision; matches: MatchRecord[] }> {
+    // The challenge exists only as a question + answer pair; a question with no
+    // answer is not a gate, so neither is stored.
+    const challenge = input.secretChallenge?.trim() || undefined;
+    const answer = input.secretAnswer?.trim() || undefined;
+    const secrets =
+      challenge && answer
+        ? (() => {
+            const secretSalt = newSalt();
+            return { secretSalt, secretAnswerHash: hashAnswer(answer, secretSalt) };
+          })()
+        : {};
+
     const doc = await this.client.create({
       _type: "lostFoundItem",
       kind: input.kind,
@@ -185,7 +270,8 @@ export class SanityProvider implements LostNetData {
       materials: input.materials,
       status: "open",
       ...(input.imageUrl ? { imageUrl: input.imageUrl } : {}),
-      ...(input.secretChallenge ? { secretChallenge: input.secretChallenge.trim() } : {}),
+      ...(challenge && answer ? { secretChallenge: challenge } : {}),
+      ...secrets,
       ...(input.handoverNote ? { handoverNote: input.handoverNote.trim() } : {}),
     });
     const item = await this.getItem(doc._id);
@@ -199,6 +285,9 @@ export class SanityProvider implements LostNetData {
   ): Promise<{ item: Item; decision: MatchDecision; matches: MatchRecord[] }> {
     const item = await this.getItem(itemId);
     if (!item) throw new Error(`Item ${itemId} not found`);
+    if (item.status === "matched" || item.status === "resolved") {
+      return { item, decision: { targetId: item._id, candidates: [], top: null }, matches: [] };
+    }
     const { decision, matches } = await this.runMatch(item);
     return { item, decision, matches };
   }
@@ -287,7 +376,7 @@ export class SanityProvider implements LostNetData {
   async decideMatch(
     id: string,
     decision: "confirmed" | "rejected",
-    details?: { safeHarbor?: string; timeWindow?: string },
+    handover?: HandoverPlan,
   ): Promise<{ match: MatchRecord; reunion?: Reunion }> {
     const match = await this.getMatch(id);
     if (!match) throw new Error(`Match ${id} not found`);
@@ -295,20 +384,21 @@ export class SanityProvider implements LostNetData {
       throw new Error(`Match already ${match.status} — transition denied`);
     }
     const decidedAt = new Date().toISOString();
-    const patch = {
-      status: decision,
-      decidedAt,
-      decidedBy: "volunteer",
-    };
+    const patch = { status: decision, decidedAt, decidedBy: "volunteer" };
     const txn = this.client.transaction().patch(id, (p) => p.set(patch));
+
     if (decision === "confirmed") {
       const [itemA, itemB] = await this.getItemsByIds([match.itemAId, match.itemBId]);
-      // Same fact-built, immediately published story the local provider
-      // writes: /reunions must look identical whichever backend is live.
+      // Same fact-built, immediately published story the local provider writes:
+      // /reunions must look identical whichever backend is live.
       const { title, story } = buildReunionContent(match, itemA, itemB);
-      const token = `#LN-${Math.abs(id.split("").reduce((acc, char) => ((acc << 5) - acc + char.charCodeAt(0)) | 0, 0) % 9000 + 1000)}`;
-      const safePoint = details?.safeHarbor || itemA?.handoverNote || itemB?.handoverNote || "Indiranagar Metro Station Customer Desk, Gate 2";
-      const challengeProof = itemA?.secretChallenge || itemB?.secretChallenge || "Physical trait & secret match confirmed";
+      // No fabricated defaults: an unset plan means the finder keeps it.
+      const plan: HandoverPlan = handover && handover.mode ? handover : { mode: "finder" };
+      const challengeQuestion = itemA?.secretChallenge || itemB?.secretChallenge || undefined;
+      const point = plan.point
+        ? { _type: "geopoint", lat: plan.point.lat, lng: plan.point.lng }
+        : undefined;
+
       txn
         .patch(match.itemAId, (p) => p.set({ status: "matched" }))
         .patch(match.itemBId, (p) => p.set({ status: "matched" }))
@@ -319,91 +409,63 @@ export class SanityProvider implements LostNetData {
           story,
           status: "published",
           publishedAt: decidedAt,
-          safeHarbor: safePoint,
-          claimToken: token,
-          custodyState: "deposited",
-          verifiedChallengeProof: challengeProof,
+          safeHarbor: plan.label,
+          handover: {
+            mode: plan.mode,
+            ...(plan.label ? { label: plan.label } : {}),
+            ...(point ? { point } : {}),
+            ...(plan.time ? { time: plan.time } : {}),
+          },
+          claimToken: newClaimToken(),
+          // Nothing is in custody until someone actually deposits it.
+          claimAttempts: 0,
+          ...(challengeQuestion ? { challengeQuestion } : {}),
         });
     }
     await txn.commit();
     const updated = await this.getMatch(id);
     if (!updated) throw new Error("Match disappeared after transition");
+
     let reunion: Reunion | undefined;
     if (decision === "confirmed") {
-      const reunionDocs = await this.client.fetch<
-        {
-          _id: string;
-          matchId: string;
-          title: string;
-          story: string;
-          status: "draft" | "published";
-          _createdAt: string;
-          publishedAt?: string;
-          safeHarbor?: string;
-          claimToken?: string;
-          custodyState?: "deposited" | "verified" | "released";
-          verifiedChallengeProof?: string;
-        }[]
-      >(`*[_type == "reunion" && match._ref == $id][0...1]{
-          _id, "matchId": match._ref, title, story, status, _createdAt, publishedAt,
-          safeHarbor, claimToken, custodyState, verifiedChallengeProof
-        }`, { id });
-      if (reunionDocs[0]) {
-        reunion = {
-          _id: reunionDocs[0]._id,
-          matchId: reunionDocs[0].matchId,
-          title: reunionDocs[0].title,
-          story: reunionDocs[0].story,
-          status: reunionDocs[0].status,
-          createdAt: reunionDocs[0]._createdAt,
-          publishedAt: reunionDocs[0].publishedAt,
-          safeHarbor: reunionDocs[0].safeHarbor,
-          claimToken: reunionDocs[0].claimToken,
-          custodyState: reunionDocs[0].custodyState,
-          verifiedChallengeProof: reunionDocs[0].verifiedChallengeProof,
-        };
-      }
+      const docs = await this.client.fetch<SanityReunionDoc[]>(
+        `*[_type == "reunion" && match._ref == $id][0...1]${REUNION_PROJECTION}`,
+        { id },
+      );
+      if (docs[0]) reunion = mapReunion(docs[0]);
     }
     return { match: updated, reunion };
   }
 
+  /** Public listing — the ownership question is not included. */
   async listReunions(): Promise<Reunion[]> {
-    const docs = await this.client.fetch<
-      {
-        _id: string;
-        matchId: string;
-        title: string;
-        story: string;
-        status: "draft" | "published";
-        _createdAt: string;
-        publishedAt?: string;
-        safeHarbor?: string;
-        claimToken?: string;
-        custodyState?: "deposited" | "verified" | "released";
-        verifiedChallengeProof?: string;
-      }[]
-    >(`*[_type == "reunion"] | order(_createdAt desc){
-        _id, "matchId": match->_id, title, story, status, _createdAt, publishedAt,
-        safeHarbor, claimToken, custodyState, verifiedChallengeProof
-      }`);
-    return docs.map((d) => ({
-      _id: d._id,
-      matchId: d.matchId ?? "",
-      title: d.title,
-      story: d.story,
-      status: d.status,
-      createdAt: d._createdAt,
-      publishedAt: d.publishedAt,
-      safeHarbor: d.safeHarbor,
-      claimToken: d.claimToken,
-      custodyState: d.custodyState,
-      verifiedChallengeProof: d.verifiedChallengeProof,
-    }));
+    const docs = await this.client.fetch<SanityReunionDoc[]>(
+      `*[_type == "reunion"] | order(_createdAt desc)${REUNION_PROJECTION}`,
+    );
+    return docs.map((d) => stripReunionSecrets(mapReunion(d)));
   }
 
   async getReunion(id: string): Promise<Reunion | null> {
-    const all = await this.listReunions();
-    return all.find((r) => r._id === id) ?? null;
+    const doc = await this.client.fetch<SanityReunionDoc | null>(
+      `*[_type == "reunion" && _id == $id][0]${REUNION_PROJECTION}`,
+      { id },
+    );
+    return doc ? mapReunion(doc) : null;
+  }
+
+  /**
+   * Token lookup. Returns the challenge question too — the question is only
+   * useful to someone who already holds the token, and the desk needs to read
+   * it aloud. The answer never appears here at any point.
+   */
+  async getReunionByToken(token: string): Promise<Reunion | null> {
+    const clean = token.trim().toUpperCase().replace(/^#/, "").replace(/\s+/g, "");
+    if (!clean) return null;
+    const docs = await this.client.fetch<SanityReunionDoc[]>(
+      `*[_type == "reunion" && defined(claimToken)]${REUNION_PROJECTION}`,
+    );
+    const found = docs.find((d) => (d.claimToken ?? "").toUpperCase().replace(/^#/, "") === clean);
+    return found ? mapReunion(found) : null;
   }
 
   async publishReunion(id: string, story?: string): Promise<Reunion> {
@@ -422,22 +484,43 @@ export class SanityProvider implements LostNetData {
     return r;
   }
 
-  async resetDemoData(): Promise<void> {
-    const tx = this.client.transaction();
-    for (const item of SEED_ITEMS) {
-      tx.patch(item._id, (p) => p.set({ status: "open" }));
-    }
-    await tx.commit();
+  /**
+   * Server-side ownership check against the stored PBKDF2 hash. Nothing about
+   * the secret leaves this method except a boolean. Two failures lock it.
+   */
+  async verifyClaim(
+    reunionId: string,
+    answer: string,
+  ): Promise<{ verified: boolean; attempts: number; locked: boolean; hasChallenge: boolean }> {
+    const reunion = await this.getReunion(reunionId);
+    if (!reunion) throw new Error(`Reunion ${reunionId} not found`);
+    const match = await this.getMatch(reunion.matchId);
+    // Deliberately the raw projection: the salt and hash are needed here and
+    // nowhere else, and they are never returned to the caller.
+    const rawDocs = match
+      ? await this.client.fetch<SanityItemDoc[]>(
+          `*[_type == "lostFoundItem" && _id in $ids]${ITEM_PROJECTION}`,
+          { ids: [match.itemAId, match.itemBId] },
+        )
+      : [];
+    const challenged = rawDocs.map(mapItemRaw).find((i) => i.secretAnswerHash && i.secretSalt);
 
-    // Clear all existing reunions first, then matches (reunions hold references to matches)
-    const reunions = await this.client.fetch<{ _id: string }[]>(`*[_type == "reunion"]{_id}`);
-    for (const r of reunions) {
-      await this.client.delete(r._id).catch(() => {});
+    const attempts = reunion.claimAttempts ?? 0;
+    if (!challenged?.secretAnswerHash || !challenged.secretSalt) {
+      return { verified: false, attempts, locked: false, hasChallenge: false };
     }
-    const matches = await this.client.fetch<{ _id: string }[]>(`*[_type == "match"]{_id}`);
-    for (const m of matches) {
-      await this.client.delete(m._id).catch(() => {});
+    if (attempts >= 2) {
+      return { verified: false, attempts, locked: true, hasChallenge: true };
     }
+
+    const ok = verifyAnswer(answer, challenged.secretSalt, challenged.secretAnswerHash);
+    if (ok) {
+      await this.client.patch(reunionId).set({ verifiedAt: new Date().toISOString() }).commit();
+      return { verified: true, attempts, locked: false, hasChallenge: true };
+    }
+    const next = attempts + 1;
+    await this.client.patch(reunionId).set({ claimAttempts: next }).commit();
+    return { verified: false, attempts: next, locked: next >= 2, hasChallenge: true };
   }
 }
 
@@ -445,8 +528,6 @@ export class SanityProvider implements LostNetData {
 const globalStore = globalThis as unknown as { __lostnetSanityProvider?: SanityProvider | null };
 
 export function getSanityProvider(): LostNetData {
-  if (process.env.NODE_ENV === "development" || !globalStore.__lostnetSanityProvider) {
-    globalStore.__lostnetSanityProvider = new SanityProvider();
-  }
+  if (!globalStore.__lostnetSanityProvider) globalStore.__lostnetSanityProvider = new SanityProvider();
   return globalStore.__lostnetSanityProvider;
 }

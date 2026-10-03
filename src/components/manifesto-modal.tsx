@@ -119,8 +119,9 @@ export default function ManifestoModal({ open, onClose }: ManifestoModalProps) {
                       1. Autonomous Gravitational Resonance (Not Dumb Matching)
                     </h4>
                     <p className="mt-0.5 text-xs text-zinc-300 leading-relaxed">
-                      Reports don&apos;t sit in quiet silos. LostNet calculates spatial, temporal, taxonomic, and inverse-document-frequency
-                      (IDF) attribute log-odds so items pull toward each other automatically on a living canvas.
+                      Reports don&apos;t sit in quiet silos. A deterministic engine scores every opposite-kind pair on category (0.30),
+                      geospatial distance (0.30), timing (0.20) and description overlap (0.20), with a colour-contradiction
+                      penalty — so items visibly pull toward each other on a living canvas. No model decides anything.
                     </p>
                   </div>
                 </div>
@@ -131,10 +132,13 @@ export default function ManifestoModal({ open, onClose }: ManifestoModalProps) {
                   </div>
                   <div>
                     <h4 className="text-xs font-bold text-rose-200">
-                      2. Blind Split-Knowledge Challenge Gate (Say Zero-Knowledge &amp; Mean It)
+                      2. Hashed Ownership Challenge (The Answer Never Leaves the Server)
                     </h4>
                     <p className="mt-0.5 text-xs text-zinc-300 leading-relaxed">
-                      Plaintext secrets are never exposed on a public board or to the attendant. The attendant reads an open prompt, types the claimant&apos;s spoken words, and the terminal cryptographically validates. A 2-strike lockout prevents brute-force social engineering.
+                      The owner writes a question and an answer. Only a PBKDF2-SHA256 hash and a random salt are stored — never the
+                      plaintext. The desk reads the question aloud, types the claimant&apos;s spoken words and sends them to the server,
+                      which compares hashes and returns a single boolean. This screen can&apos;t leak what it never holds. Two wrong
+                      attempts lock the handover.
                     </p>
                   </div>
                 </div>
@@ -162,8 +166,9 @@ export default function ManifestoModal({ open, onClose }: ManifestoModalProps) {
                       4. The Airline Boarding Pass for Physical Handover
                     </h4>
                     <p className="mt-0.5 text-xs text-zinc-300 leading-relaxed">
-                      Once confirmed, a verified Digital Return Pass with scannable QR code and cryptographic token (<span className="text-zinc-100 font-mono font-bold">#LN-XXXX</span>)
-                      is issued. The station desk scans it and safely releases the object.
+                      Once confirmed, a Digital Return Pass with a one-time claim token (<span className="text-zinc-100 font-mono font-bold">#LN-XXXX</span>)
+                      and a real QR code is issued. Scan it with any phone camera and the board opens with the token filled in —
+                      no app, no login, no account.
                     </p>
                   </div>
                 </div>
@@ -180,7 +185,7 @@ export default function ManifestoModal({ open, onClose }: ManifestoModalProps) {
                   <span className="text-indigo-400 font-bold shrink-0">1.</span>
                   <div>
                     <p className="font-semibold text-white">“LostNet doesn&apos;t move the item — it moves the trust.”</p>
-                    <p className="text-zinc-400 text-[11px] mt-0.5">Physical items stay in the neighborhood; cryptographic verification coordinates the handover.</p>
+                    <p className="text-zinc-400 text-[11px] mt-0.5">Physical items stay in the neighbourhood; a one-time token and a hashed ownership check coordinate the handover.</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-2.5 text-zinc-200">

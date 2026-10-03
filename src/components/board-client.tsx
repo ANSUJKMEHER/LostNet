@@ -27,8 +27,8 @@ import MatchDialog from "@/components/match-dialog";
 import CategoryFilter from "@/components/category-filter";
 import ManifestoModal from "@/components/manifesto-modal";
 import CustodyDeskModal from "@/components/custody-desk-modal";
-import ReturnPassModal, { type ReturnPassData } from "@/components/return-pass-modal";
-import type { Item, MatchRecord, NewItemInput } from "@/lib/types";
+import ReturnPassModal from "@/components/return-pass-modal";
+import type { GeoPoint, HandoverPlan, Item, MatchRecord, NewItemInput, Reunion } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useLiveUpdates } from "@/hooks/use-live-updates";
 import { sounds } from "@/lib/audio";
@@ -59,9 +59,8 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
   const [manifestoOpen, setManifestoOpen] = useState(false);
   const [custodyDeskOpen, setCustodyDeskOpen] = useState(false);
   const [custodyInitialToken, setCustodyInitialToken] = useState<string | undefined>(undefined);
-  const [custodyAutoVerify, setCustodyAutoVerify] = useState(false);
   const [returnPassOpen, setReturnPassOpen] = useState(false);
-  const [returnPassData, setReturnPassData] = useState<ReturnPassData | null>(null);
+  const [returnPassData, setReturnPassData] = useState<Reunion | null>(null);
   const [demoRunning, setDemoRunning] = useState(false);
   const [demoStep, setDemoStep] = useState<1 | 2 | 3 | 4 | 5>(1);
   const timerRef = useRef<number | null>(null);
@@ -69,50 +68,9 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   // Simulated Google Auth / Citizen Profile State
-  const [user, setUser] = useState<{
-    name: string;
-    email: string;
-    role: "citizen" | "volunteer";
-    karma: number;
-    reunionsAssisted: number;
-  } | null>({
-    name: "Alex Chen",
-    email: "alex.c@lostnet.org",
-    role: "citizen",
-    karma: 850,
-    reunionsAssisted: 4,
-  });
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const userMenuRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
-        setUserMenuOpen(false);
-      }
-    }
-    if (userMenuOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-      return () => document.removeEventListener("mousedown", handleClickOutside);
-    }
-  }, [userMenuOpen]);
-
-  const handleGoogleSignIn = () => {
-    setUser({
-      name: "Alex Chen",
-      email: "alex.c@lostnet.org",
-      role: "citizen",
-      karma: 850,
-      reunionsAssisted: 4,
-    });
-    flashNotice({ kind: "none", text: "Signed in as Alex Chen (Google OAuth 2.0 Verified)" });
-  };
-
-  const handleSignOut = () => {
-    setUser(null);
-    setUserMenuOpen(false);
-    flashNotice({ kind: "none", text: "Signed out of LostNet." });
-  };
+  const [reportMinimized, setReportMinimized] = useState(false);
+  const [handoverPickActive, setHandoverPickActive] = useState(false);
+  const [pickedHandoverPoint, setPickedHandoverPoint] = useState<GeoPoint | null>(null);
 
   const selected = items.find((i) => i._id === selectedId) ?? null;
 
@@ -215,6 +173,17 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
 
   const { isLive } = useLiveUpdates(refresh);
 
+  // QR deep link: /?custody=%23LN-8492 opens the desk with the token ready.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("custody");
+    if (token) {
+      setCustodyInitialToken(token);
+      setCustodyDeskOpen(true);
+    }
+  }, []);
+
   const beginFlow = useCallback((a: Item, b: Item, match: MatchRecord) => {
     setSelectedId(null);
     setMatchDialog({ a, b, match });
@@ -251,22 +220,17 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
     setDemoRunning(false);
     setReturnPassOpen(false);
     setCustodyDeskOpen(false);
-    setCustodyAutoVerify(false);
   }, []);
 
   const confirmMatch = useCallback(
-    async (details: { safeHarbor: string; timeWindow: string }) => {
+    async (handover: HandoverPlan) => {
       if (!matchDialog) return;
       setBusy(true);
       try {
         const res = await fetch(`/api/matches/${matchDialog.match._id}`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            decision: "confirmed",
-            safeHarbor: details.safeHarbor,
-            timeWindow: details.timeWindow,
-          }),
+          body: JSON.stringify({ decision: "confirmed", handover }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "Confirm failed");
@@ -277,21 +241,20 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
         sounds.playReunionChime();
         setMatchDialog(null);
         setFlow(null);
+        setPickedHandoverPoint(null);
+        setHandoverPickActive(false);
 
-        const rData: ReturnPassData = data.reunion || {
-          _id: data.match?._id || "reunion-01",
-          title: `${matchDialog.a.title} × ${matchDialog.b.title}`,
-          claimToken: "#LN-8492",
-          safeHarbor: details.safeHarbor,
-          verifiedChallengeProof: matchDialog.a.secretChallenge || matchDialog.b.secretChallenge || "Red 'R' tag",
-          custodyState: "deposited",
-        };
-        setReturnPassData(rData);
-        setReturnPassOpen(true);
+        // Only show the Return Pass when the server actually issued one.
+        const issued: Reunion | null = data.reunion ?? null;
+        if (issued) {
+          setReturnPassData(issued);
+          setReturnPassOpen(true);
+        }
 
+        const place = issued?.handover?.label ?? "the finder";
         flashNotice({
           kind: "reunion",
-          text: `Reunited: "${matchDialog.a.title}" & "${matchDialog.b.title}" · Handover at ${details.safeHarbor}`,
+          text: `Reunited: "${matchDialog.a.title}" & "${matchDialog.b.title}" · Handover: ${place}`,
           link: "/reunions",
         });
       } catch (err) {
@@ -310,15 +273,11 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
       const target = items.find((i) => i._id === "lost-01") || items[0];
       if (target) proposeFor(target);
     } else if (demoStep === 2) {
-      confirmMatch({
-        safeHarbor: "Indiranagar Metro (Gate 2 Customer Desk)",
-        timeWindow: "⚡ Express (Within 2 hrs)",
-      });
+      confirmMatch({ mode: "public", label: "Indiranagar Metro Station — Gate 2", time: "As soon as we can" });
       setDemoStep(3);
     } else if (demoStep === 3) {
       setReturnPassOpen(false);
-      setCustodyInitialToken(returnPassData?.claimToken || "#LN-8492");
-      setCustodyAutoVerify(true);
+      setCustodyInitialToken(returnPassData?.claimToken);
       setCustodyDeskOpen(true);
       setDemoStep(4);
     } else if (demoStep === 4) {
@@ -336,7 +295,6 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
     setSearchQuery("");
     setReturnPassOpen(false);
     setCustodyDeskOpen(false);
-    setCustodyAutoVerify(false);
     setDemoRunning(true);
     setDemoStep(1);
     sounds.playSnap();
@@ -396,8 +354,11 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
                 headers: { "content-type": "application/json" },
                 body: JSON.stringify({
                   decision: "confirmed",
-                  safeHarbor: "Indiranagar Metro (Gate 2 Customer Desk)",
-                  timeWindow: "⚡ Express (Within 2 hrs)",
+                  handover: {
+                    mode: "public",
+                    label: "Indiranagar Metro Station — Gate 2",
+                    time: "As soon as we can",
+                  },
                 }),
               });
               const confData = await confRes.json();
@@ -414,24 +375,18 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
                 setMatchDialog(null);
                 setFlow(null);
 
-                // Step 3: Show Return Pass
-                const reunionData: ReturnPassData = confData.reunion || {
-                  _id: confData.match._id,
-                  title: `${target!.title} × ${data.decision.top.item.title}`,
-                  claimToken: "#LN-8492",
-                  safeHarbor: "Indiranagar Metro (Gate 2 Customer Desk)",
-                  verifiedChallengeProof: target!.secretChallenge || "Red 'R' tag",
-                  custodyState: "deposited",
-                };
-                setReturnPassData(reunionData);
-                setReturnPassOpen(true);
+                // Step 3: Show the Return Pass the server issued
+                const reunionData: Reunion | null = confData.reunion ?? null;
+                if (reunionData) {
+                  setReturnPassData(reunionData);
+                  setReturnPassOpen(true);
+                }
                 setDemoStep(3);
 
-                // Step 4: After 3.5s, launch Custody Desk Terminal
+                // Step 4: After 3.5s, open the custody desk with the real token
                 demoTimerRef.current = setTimeout(() => {
                   setReturnPassOpen(false);
-                  setCustodyInitialToken(reunionData.claimToken);
-                  setCustodyAutoVerify(true);
+                  setCustodyInitialToken(reunionData?.claimToken);
                   setCustodyDeskOpen(true);
                   setDemoStep(4);
 
@@ -505,16 +460,27 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
 
   const openReport = () => {
     setReportOpen(true);
+    setReportMinimized(false);
     setPinMode(true);
     setSelectedId(null);
   };
 
   const onMapClick = useCallback(
     (lat: number, lng: number) => {
-      if (pinMode) setPin({ lat, lng });
-      else setSelectedId(null);
+      if (handoverPickActive) {
+        setPickedHandoverPoint({ lat, lng });
+        setHandoverPickActive(false);
+        return;
+      }
+      if (pinMode) {
+        setPin({ lat, lng });
+        // Bring the report form back now that the spot is placed.
+        setReportMinimized(false);
+        return;
+      }
+      setSelectedId(null);
     },
-    [pinMode],
+    [pinMode, handoverPickActive],
   );
 
   return (
@@ -627,7 +593,7 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
                     <span>🎟️ Digital Return Pass Issued</span>
                   </h3>
                   <p className="mt-1 text-xs text-zinc-300 leading-relaxed">
-                    Airline-style boarding pass generated with scannable QR and encrypted token <strong className="text-emerald-300 font-mono">#LN-8492</strong>. Zero phone numbers or home addresses are ever exposed.
+                    A one-time claim token and a real QR code. Scan it with any phone camera to open the custody desk with the token filled in. Zero phone numbers or home addresses are ever exchanged.
                   </p>
                 </div>
               )}
@@ -635,10 +601,11 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
               {demoStep === 4 && (
                 <div>
                   <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-1.5">
-                    <span>🏢 Custody Terminal &amp; Split-Knowledge Release</span>
+                    <span>🏢 Custody desk — answer checked on the server</span>
                   </h3>
                   <p className="mt-1 text-xs text-zinc-300 leading-relaxed">
-                    Attendant quizzes the verbal challenge (<em className="text-amber-200">“Red &apos;R&apos; tag”</em>). The terminal cryptographically verifies and completes the sign-off certificate directly into Sanity.
+                    The desk looks the token up, asks the owner&apos;s private question, and the spoken answer is
+                    verified against a hash on the server. Two wrong tries lock the handover.
                   </p>
                 </div>
               )}
@@ -754,7 +721,6 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
               type="button"
               onClick={() => {
                 setCustodyInitialToken(undefined);
-                setCustodyAutoVerify(false);
                 setCustodyDeskOpen(true);
               }}
               className="ln-glass flex min-h-[42px] items-center gap-1.5 sm:gap-2 rounded-2xl px-2.5 sm:px-3 py-2 text-xs sm:text-sm text-emerald-300 hover:text-emerald-200 border border-emerald-500/30 hover:border-emerald-400/50 shadow-lg shadow-emerald-950/30 transition select-none font-semibold cursor-pointer"
@@ -798,137 +764,11 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
               <span className="rounded-full bg-rose-500/25 px-2 py-0.5 text-xs font-bold text-rose-300">{reunionCount}</span>
             </Link>
 
-            {/* Google / Citizen Auth Pill */}
-            {user ? (
-              <div className="relative" ref={userMenuRef}>
-                <button
-                  type="button"
-                  onClick={() => setUserMenuOpen((prev) => !prev)}
-                  className="ln-glass flex min-h-[42px] items-center gap-2 rounded-2xl px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm text-zinc-200 transition hover:text-white border border-white/10 hover:border-white/20 shadow-lg cursor-pointer"
-                  title="Citizen Profile & Karma"
-                >
-                  <div className="relative flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-indigo-500 to-amber-400 p-[1.5px]">
-                    <div className="flex h-full w-full items-center justify-center rounded-full bg-zinc-900 text-[10px] font-bold text-white">
-                      {user.name.charAt(0)}
-                    </div>
-                    <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border border-zinc-900 bg-emerald-400" />
-                  </div>
-                  <div className="hidden text-left xl:block">
-                    <p className="text-xs font-semibold leading-tight text-zinc-100">{user.name}</p>
-                    <p className="text-[10px] text-amber-300 font-medium">Lvl 2 Samaritan</p>
-                  </div>
-                  <ChevronDown className={cn("h-3.5 w-3.5 text-zinc-400 transition-transform duration-200", userMenuOpen && "rotate-180")} />
-                </button>
-
-                <AnimatePresence>
-                  {userMenuOpen && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 8, scale: 0.95 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: 8, scale: 0.95 }}
-                      transition={{ duration: 0.15, ease: "easeOut" }}
-                      className="absolute right-0 top-full mt-2 z-50 w-72 origin-top-right rounded-2xl border border-white/15 bg-zinc-950/95 p-4 shadow-2xl backdrop-blur-xl"
-                    >
-                      {/* Profile Header */}
-                      <div className="flex items-center gap-3 border-b border-white/10 pb-3">
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-indigo-500 to-amber-400 p-[2px]">
-                          <div className="flex h-full w-full items-center justify-center rounded-full bg-zinc-900 text-sm font-bold text-white">
-                            {user.name.charAt(0)}
-                          </div>
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5">
-                            <p className="truncate text-sm font-semibold text-zinc-100">{user.name}</p>
-                            <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
-                          </div>
-                          <p className="truncate text-xs text-zinc-400">{user.email}</p>
-                          <div className="mt-1 flex items-center gap-1">
-                            <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24">
-                              <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"/>
-                              <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"/>
-                              <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.98 0 12s.45 3.82 1.25 5.42l4.03-3.15z"/>
-                              <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"/>
-                            </svg>
-                            <span className="text-[10px] font-medium text-emerald-400">Google OAuth Verified</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Karma & Community Stats */}
-                      <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-white/[0.03] p-2.5 border border-white/5">
-                        <div className="flex flex-col">
-                          <span className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium">Samaritan Karma</span>
-                          <span className="mt-0.5 text-xs font-bold text-amber-300">🌟 {user.karma} pts</span>
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium">Reunions Aided</span>
-                          <span className="mt-0.5 text-xs font-bold text-rose-300">♥ {user.reunionsAssisted} returned</span>
-                        </div>
-                      </div>
-
-                      {/* Role Selector */}
-                      <div className="mt-3 space-y-1">
-                        <p className="text-[10px] uppercase tracking-wider font-semibold text-zinc-400">Operating Role</p>
-                        <div className="grid grid-cols-2 gap-1 rounded-xl bg-black/40 p-1 border border-white/5">
-                          <button
-                            type="button"
-                            onClick={() => setUser((u) => (u ? { ...u, role: "citizen" } : null))}
-                            className={cn(
-                              "rounded-lg px-2 py-1.5 text-xs font-medium transition cursor-pointer",
-                              user.role === "citizen" ? "bg-indigo-600 text-white shadow" : "text-zinc-400 hover:text-white"
-                            )}
-                          >
-                            Citizen Finder
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setUser((u) => (u ? { ...u, role: "volunteer" } : null));
-                              setUserMenuOpen(false);
-                              setCustodyDeskOpen(true);
-                            }}
-                            className={cn(
-                              "rounded-lg px-2 py-1.5 text-xs font-medium transition cursor-pointer",
-                              user.role === "volunteer" ? "bg-indigo-600 text-white shadow" : "text-zinc-400 hover:text-white"
-                            )}
-                          >
-                            Safe Desk
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Sign out */}
-                      <div className="mt-3 border-t border-white/10 pt-2.5">
-                        <button
-                          type="button"
-                          onClick={handleSignOut}
-                          className="flex w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-xs text-zinc-400 hover:bg-white/5 hover:text-rose-300 transition cursor-pointer"
-                        >
-                          <span>Sign out / Switch account</span>
-                          <LogOut className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={handleGoogleSignIn}
-                className="ln-glass flex min-h-[42px] items-center gap-2 rounded-2xl px-3 sm:px-3.5 py-2 text-xs sm:text-sm font-semibold text-zinc-100 hover:text-white border border-white/10 hover:border-white/25 shadow-lg transition cursor-pointer"
-                title="Sign in with Google"
-              >
-                <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24">
-                  <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"/>
-                  <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"/>
-                  <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.98 0 12s.45 3.82 1.25 5.42l4.03-3.15z"/>
-                  <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"/>
-                </svg>
-                <span className="hidden sm:inline">Sign in with Google</span>
-                <span className="sm:hidden">Sign in</span>
-              </button>
-            )}
+            {/* LostNet has no accounts — say that instead of faking a sign-in */}
+            <div className="ln-glass hidden min-h-[42px] items-center gap-2 rounded-2xl border border-white/10 px-3 py-2 text-xs text-zinc-400 shadow-lg md:flex">
+              <ShieldCheck className="h-4 w-4 text-emerald-400 shrink-0" />
+              No account needed
+            </div>
 
             <button
               type="button"
@@ -1076,26 +916,70 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
         )}
       </AnimatePresence>
 
-      {/* Report dialog */}
+      {/* Handover point picker hint */}
+      {handoverPickActive && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-6 z-[7] flex justify-center px-4">
+          <div className="ln-glass pointer-events-auto flex items-center gap-3 rounded-2xl border border-indigo-400/30 px-4 py-3 shadow-2xl">
+            <MapPin className="h-4 w-4 text-indigo-300" />
+            <span className="text-sm text-zinc-200">Tap the map to set the handover point</span>
+            <button
+              type="button"
+              onClick={() => setHandoverPickActive(false)}
+              className="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-zinc-200 transition hover:bg-white/20"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Report dialog — hidden while the reporter places the pin on the map */}
+      {reportMinimized && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-6 z-[7] flex justify-center px-4">
+          <div className="ln-glass pointer-events-auto flex items-center gap-3 rounded-2xl border border-white/10 px-4 py-3 shadow-2xl">
+            <MapPin className="h-4 w-4 text-emerald-300" />
+            <span className="text-sm text-zinc-200">Tap the map to place the pin</span>
+            <button
+              type="button"
+              onClick={() => setReportMinimized(false)}
+              className="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-zinc-200 transition hover:bg-white/20"
+            >
+              Back to the form
+            </button>
+          </div>
+        </div>
+      )}
+
       <ReportDialog
-        open={reportOpen}
+        open={reportOpen && !reportMinimized}
         pin={pin}
         busy={busy}
         onClose={() => {
           setReportOpen(false);
+          setReportMinimized(false);
           setPinMode(false);
           setPin(null);
+        }}
+        onRequestMapPick={() => {
+          setReportMinimized(true);
+          setPinMode(true);
+        }}
+        onUseMyLocation={(lat, lng) => {
+          setPin({ lat, lng });
+          setPinMode(false);
         }}
         onSubmit={submitReport}
       />
 
       {/* Match proposal & confirm dialog */}
       <MatchDialog
-        open={Boolean(matchDialog)}
+        open={Boolean(matchDialog) && !handoverPickActive}
         a={matchDialog?.a ?? null}
         b={matchDialog?.b ?? null}
         match={matchDialog?.match ?? null}
         busy={busy}
+        pickedPoint={pickedHandoverPoint}
+        onRequestMapPick={() => setHandoverPickActive(true)}
         onConfirm={confirmMatch}
         onReject={rejectMatch}
         onClose={() => {
@@ -1139,7 +1023,6 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
         data={returnPassData}
         onOpenCustodyDesk={(token) => {
           setCustodyInitialToken(token);
-          setCustodyAutoVerify(demoRunning);
           setCustodyDeskOpen(true);
         }}
       />
@@ -1152,10 +1035,8 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
         open={custodyDeskOpen}
         onClose={() => {
           setCustodyDeskOpen(false);
-          setCustodyAutoVerify(false);
         }}
         initialToken={custodyInitialToken}
-        autoVerifyDemo={custodyAutoVerify}
         onReunionUpdated={refresh}
       />
     </div>

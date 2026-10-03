@@ -1,4 +1,5 @@
 import type {
+  HandoverPlan,
   Item,
   ItemStatus,
   MatchDecision,
@@ -12,6 +13,7 @@ import { DEFAULT_SETTINGS } from "../types";
 import { scoreCandidates } from "../matcher";
 import { SEED_ITEMS } from "../seed";
 import { buildReunionContent, pairKey } from "../reunion";
+import { hashAnswer, newClaimToken, newSalt, stripItemSecrets, stripReunionSecrets, verifyAnswer } from "../secret";
 import type { LostNetData } from "./provider";
 
 /**
@@ -54,20 +56,37 @@ class LocalProvider implements LostNetData {
   async listItems(status?: ItemStatus): Promise<Item[]> {
     let all = [...this.items.values()];
     if (status) all = all.filter((i) => i.status === status);
-    return all.sort((a, b) => b.reportedAt.localeCompare(a.reportedAt));
+    return all
+      .sort((a, b) => b.reportedAt.localeCompare(a.reportedAt))
+      .map((i) => stripItemSecrets(i));
   }
 
   async getItem(id: string): Promise<Item | null> {
-    return this.items.get(id) ?? null;
+    const item = this.items.get(id);
+    return item ? stripItemSecrets(item) : null;
   }
 
   async getItemsByIds(ids: string[]): Promise<Item[]> {
-    return ids.map((id) => this.items.get(id)).filter((i): i is Item => Boolean(i));
+    return ids
+      .map((id) => this.items.get(id))
+      .filter((i): i is Item => Boolean(i))
+      .map((i) => stripItemSecrets(i));
   }
 
   async createItem(
     input: NewItemInput,
   ): Promise<{ item: Item; decision: MatchDecision; matches: MatchRecord[] }> {
+    // The ownership challenge only exists as a pair: a question AND an answer.
+    // A question without an answer is not a gate, so it is not stored.
+    const challenge = input.secretChallenge?.trim() || undefined;
+    const answer = input.secretAnswer?.trim() || undefined;
+    let secretSalt: string | undefined;
+    let secretAnswerHash: string | undefined;
+    if (challenge && answer) {
+      secretSalt = newSalt();
+      secretAnswerHash = hashAnswer(answer, secretSalt);
+    }
+
     const item: Item = {
       _id: this.nextId("item"),
       kind: input.kind,
@@ -82,12 +101,14 @@ class LocalProvider implements LostNetData {
       materials: input.materials,
       status: "open",
       imageUrl: input.imageUrl,
-      secretChallenge: input.secretChallenge?.trim(),
+      secretChallenge: challenge && answer ? challenge : undefined,
+      secretSalt,
+      secretAnswerHash,
       handoverNote: input.handoverNote?.trim(),
     };
     this.items.set(item._id, item);
     const { decision, matches } = this.runMatch(item);
-    return { item, decision, matches };
+    return { item: stripItemSecrets(item), decision, matches };
   }
 
   async proposeMatches(
@@ -162,7 +183,7 @@ class LocalProvider implements LostNetData {
   async decideMatch(
     id: string,
     decision: "confirmed" | "rejected",
-    details?: { safeHarbor?: string; timeWindow?: string },
+    handover?: HandoverPlan,
   ): Promise<{ match: MatchRecord; reunion?: Reunion }> {
     const match = this.matches.get(id);
     if (!match) throw new Error(`Match ${id} not found`);
@@ -178,7 +199,7 @@ class LocalProvider implements LostNetData {
         const item = this.items.get(itemId);
         if (item) item.status = "matched";
       }
-      const reunion = this.buildReunion(match, details);
+      const reunion = this.buildReunion(match, handover);
       this.reunions.set(reunion._id, reunion);
       return { match, reunion };
     }
@@ -186,13 +207,16 @@ class LocalProvider implements LostNetData {
   }
 
   /** Story drafted purely from structured facts — AI narration swaps in later behind the same shape. */
-  private buildReunion(match: MatchRecord, details?: { safeHarbor?: string; timeWindow?: string }): Reunion {
+  private buildReunion(match: MatchRecord, handover?: HandoverPlan): Reunion {
     const a = this.items.get(match.itemAId);
     const b = this.items.get(match.itemBId);
     const { title, story } = buildReunionContent(match, a, b);
-    const token = `#LN-${Math.abs(match._id.split("").reduce((acc, char) => ((acc << 5) - acc + char.charCodeAt(0)) | 0, 0) % 9000 + 1000)}`;
-    const safePoint = details?.safeHarbor || a?.handoverNote || b?.handoverNote || "Indiranagar Metro Station Customer Desk, Gate 2";
-    const challengeProof = a?.secretChallenge || b?.secretChallenge || "Physical trait & secret match confirmed";
+
+    // No fabricated defaults: if nobody chose a place, the plan is simply
+    // "the finder keeps it" and the UI says exactly that.
+    const plan: HandoverPlan = handover && handover.mode ? handover : { mode: "finder" };
+    const challengeQuestion = a?.secretChallenge || b?.secretChallenge || undefined;
+
     return {
       _id: this.nextId("reunion"),
       matchId: match._id,
@@ -201,19 +225,69 @@ class LocalProvider implements LostNetData {
       status: "published",
       createdAt: new Date().toISOString(),
       publishedAt: new Date().toISOString(),
-      safeHarbor: safePoint,
-      claimToken: token,
-      custodyState: "deposited",
-      verifiedChallengeProof: challengeProof,
+      safeHarbor: plan.label,
+      handover: plan,
+      claimToken: newClaimToken(),
+      // Nothing is in custody until someone actually deposits it.
+      custodyState: undefined,
+      challengeQuestion,
+      claimAttempts: 0,
     };
   }
 
   async listReunions(): Promise<Reunion[]> {
-    return [...this.reunions.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    // Public listing: the ownership question stays out of it, so a listing can
+    // never be used to harvest questions. The desk gets it via token lookup.
+    return [...this.reunions.values()]
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((r) => stripReunionSecrets(r));
   }
 
   async getReunion(id: string): Promise<Reunion | null> {
     return this.reunions.get(id) ?? null;
+  }
+
+  /** Token lookup is case- and format-tolerant: "ln8492" finds "#LN-8492". */
+  async getReunionByToken(token: string): Promise<Reunion | null> {
+    const clean = token.trim().toUpperCase().replace(/^#/, "").replace(/\s+/g, "");
+    if (!clean) return null;
+    for (const r of this.reunions.values()) {
+      const candidate = (r.claimToken ?? "").toUpperCase().replace(/^#/, "");
+      if (candidate && candidate === clean) return r;
+    }
+    return null;
+  }
+
+  /**
+   * Server-side ownership check. The browser never sees the salt or the hash —
+   * it only learns whether the spoken answer matched, and how many tries are
+   * left. Two failures lock the reunion so the desk must escalate.
+   */
+  async verifyClaim(
+    reunionId: string,
+    answer: string,
+  ): Promise<{ verified: boolean; attempts: number; locked: boolean; hasChallenge: boolean }> {
+    const reunion = this.reunions.get(reunionId);
+    if (!reunion) throw new Error(`Reunion ${reunionId} not found`);
+    const match = this.matches.get(reunion.matchId);
+    const items = match ? [this.items.get(match.itemAId), this.items.get(match.itemBId)] : [];
+    const challenged = items.find((i) => i?.secretAnswerHash && i?.secretSalt);
+
+    if (!challenged || !challenged.secretAnswerHash || !challenged.secretSalt) {
+      return { verified: false, attempts: reunion.claimAttempts ?? 0, locked: false, hasChallenge: false };
+    }
+    if ((reunion.claimAttempts ?? 0) >= 2) {
+      return { verified: false, attempts: reunion.claimAttempts ?? 0, locked: true, hasChallenge: true };
+    }
+
+    const ok = verifyAnswer(answer, challenged.secretSalt, challenged.secretAnswerHash);
+    if (ok) {
+      reunion.verifiedAt = new Date().toISOString();
+    } else {
+      reunion.claimAttempts = (reunion.claimAttempts ?? 0) + 1;
+    }
+    const attempts = reunion.claimAttempts ?? 0;
+    return { verified: ok, attempts, locked: attempts >= 2, hasChallenge: true };
   }
 
   async publishReunion(id: string, story?: string): Promise<Reunion> {
@@ -237,7 +311,7 @@ class LocalProvider implements LostNetData {
     this.matches.clear();
     this.items.clear();
     for (const item of SEED_ITEMS) {
-      this.items.set(item._id, { ...item });
+      this.items.set(item._id, cloneItem(item));
     }
   }
 }

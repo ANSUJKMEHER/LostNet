@@ -16,8 +16,9 @@ import {
   MapPin,
   Lock,
 } from "lucide-react";
-import type { Item, MatchDimension, MatchRecord } from "@/lib/types";
+import type { GeoPoint, HandoverMode, HandoverPlan, Item, MatchDimension, MatchRecord } from "@/lib/types";
 import { CategoryChip } from "@/components/board-map";
+import { HANDOVER_TIME_OPTIONS, nearestHandoverPlaces } from "@/lib/handover";
 import { cn } from "@/lib/utils";
 
 interface MatchDialogProps {
@@ -26,9 +27,13 @@ interface MatchDialogProps {
   b: Item | null;
   match: MatchRecord | null;
   busy: boolean;
-  onConfirm: (details: { safeHarbor: string; timeWindow: string }) => void;
+  onConfirm: (handover: HandoverPlan) => void;
   onReject: () => void;
   onClose: () => void;
+  /** Point chosen on the map, owned by the board. */
+  pickedPoint?: GeoPoint | null;
+  /** Asks the board to hide this dialog so the map is tappable. */
+  onRequestMapPick?: () => void;
 }
 
 const DIMENSION_LABELS: Record<MatchDimension, string> = {
@@ -57,88 +62,67 @@ function BreakdownBar({ label, value }: { label: string; value: number }) {
   );
 }
 
-type SafeHarborType = "metro" | "cafe" | "police" | "custom";
+const MODES: Array<{ id: HandoverMode; title: string; blurb: string }> = [
+  {
+    id: "public",
+    title: "A public place nearby",
+    blurb: "Suggestions are sorted by distance from where it was found. Anyone can walk in.",
+  },
+  {
+    id: "map",
+    title: "A place we pick",
+    blurb: "Drop a pin anywhere — a shop counter, a gate, wherever you both agree.",
+  },
+  {
+    id: "finder",
+    title: "The finder keeps it",
+    blurb: "No place needed yet. The claimant shares the token and you arrange it directly.",
+  },
+];
 
-interface SafeHarborOption {
-  id: string;
-  name: string;
-  desc: string;
-  badge: string;
-  type: SafeHarborType;
-  liabilityClass: "active" | "passive";
-  liabilityBadge: string;
-  liabilityDetail: string;
+function placeIcon(kind: string) {
+  if (kind === "civic") return <Building2 className="h-4 w-4" />;
+  if (kind === "police") return <ShieldCheck className="h-4 w-4" />;
+  return <Coffee className="h-4 w-4" />;
 }
 
-const DEFAULT_SAFE_HARBORS: SafeHarborOption[] = [
-  {
-    id: "metro",
-    name: "Indiranagar Metro (Gate 2 Customer Desk)",
-    desc: "CCTV Monitored · Station Officer Duty · Digital Ledger API",
-    badge: "Official Civic Desk",
-    type: "metro",
-    liabilityClass: "active",
-    liabilityBadge: "🏛️ Active Civic Desk",
-    liabilityDetail: "Statutory lost-property custody. Station officers already have legal duty; LostNet provides the scan-based digital ledger.",
-  },
-  {
-    id: "cafe",
-    name: "Starbucks 100ft Road (Safe Harbor Monitored Shelf)",
-    desc: "Staff guards nothing · QR-Monitored Bin · The board keeps watch",
-    badge: "Zero-Liability Bin",
-    type: "cafe",
-    liabilityClass: "passive",
-    liabilityBadge: "☕ Passive Monitored Bin",
-    liabilityDetail: "Zero barista liability. Finder deposits directly into labeled bin with photo condition snapshot. Counter staff guards nothing.",
-  },
-  {
-    id: "police",
-    name: "Indiranagar Police Assistance Kiosk",
-    desc: "24/7 Guarded · High-Value Item Escrow · Digital Handshake",
-    badge: "High Security",
-    type: "police",
-    liabilityClass: "active",
-    liabilityBadge: "🚓 Active Police Desk",
-    liabilityDetail: "Official municipal authority. High-security custody for laptops and valuables backed by police station release receipt.",
-  },
-];
-
-const TIME_WINDOWS = [
-  { id: "express", label: "⚡ Express (Within 2 hrs)" },
-  { id: "evening", label: "🌆 Today 5:00 – 7:00 PM" },
-  { id: "tomorrow", label: "☀️ Tomorrow 10 AM – 12 PM" },
-];
-
-export default function MatchDialog({ open, a, b, match, busy, onConfirm, onReject, onClose }: MatchDialogProps) {
+export default function MatchDialog({
+  open,
+  a,
+  b,
+  match,
+  busy,
+  onConfirm,
+  onReject,
+  onClose,
+  pickedPoint,
+  onRequestMapPick,
+}: MatchDialogProps) {
   const [narration, setNarration] = useState<{ text: string; source: "ai" | "fallback" } | null>(null);
   const [narrating, setNarrating] = useState(false);
+  const [mode, setMode] = useState<HandoverMode>("public");
+  const [selectedPlaceId, setSelectedPlaceId] = useState<string>("");
+  const [mapLabel, setMapLabel] = useState("");
+  const [time, setTime] = useState<string>(HANDOVER_TIME_OPTIONS[0]);
 
-  const safeHarborOptions = useMemo(() => {
-    const list = [...DEFAULT_SAFE_HARBORS];
-    const customNote = a?.handoverNote || b?.handoverNote;
-    if (customNote && !list.some((o) => o.name.toLowerCase() === customNote.toLowerCase())) {
-      list.unshift({
-        id: "custom",
-        name: customNote,
-        desc: "Preferred location requested in report",
-        badge: "Report Preferred",
-        type: "custom" as const,
-        liabilityClass: "passive" as const,
-        liabilityBadge: "📍 Custom Safe Drop",
-        liabilityDetail: "Community agreed drop-off point specified during incident reporting.",
-      });
-    }
-    return list;
-  }, [a?.handoverNote, b?.handoverNote]);
-
-  const [selectedSpot, setSelectedSpot] = useState<string>(DEFAULT_SAFE_HARBORS[0].name);
-  const [selectedTime, setSelectedTime] = useState<string>(TIME_WINDOWS[0].label);
+  // Suggested places, nearest to where the item was found.
+  const suggested = useMemo(
+    () => nearestHandoverPlaces(a?.location ?? b?.location ?? null, 3),
+    [a?.location, b?.location],
+  );
 
   useEffect(() => {
-    if (safeHarborOptions.length > 0) {
-      setSelectedSpot(safeHarborOptions[0].name);
+    if (suggested.length > 0 && !suggested.some((p) => p.id === selectedPlaceId)) {
+      setSelectedPlaceId(suggested[0].id);
     }
-  }, [safeHarborOptions]);
+  }, [suggested, selectedPlaceId]);
+
+  // Prefill the label from whatever the reporter wrote, if anything.
+  useEffect(() => {
+    if (!open) return;
+    const note = a?.handoverNote || b?.handoverNote || "";
+    if (note) setMapLabel(note);
+  }, [open, a?.handoverNote, b?.handoverNote]);
 
   useEffect(() => {
     if (!open) {
@@ -146,6 +130,24 @@ export default function MatchDialog({ open, a, b, match, busy, onConfirm, onReje
       setNarrating(false);
     }
   }, [open]);
+
+  const selectedPlace = suggested.find((p) => p.id === selectedPlaceId) ?? null;
+  const hasChallenge = Boolean(a?.secretChallenge || b?.secretChallenge);
+
+  const buildPlan = (): HandoverPlan => {
+    if (mode === "public" && selectedPlace) {
+      return { mode, label: selectedPlace.label, point: selectedPlace.location, time };
+    }
+    if (mode === "map") {
+      return {
+        mode,
+        label: mapLabel.trim() || (pickedPoint ? "Point chosen on the map" : undefined),
+        point: pickedPoint ?? null,
+        time,
+      };
+    }
+    return { mode: "finder", time };
+  };
 
   const handleNarrate = async () => {
     if (!match) return;
@@ -160,10 +162,11 @@ export default function MatchDialog({ open, a, b, match, busy, onConfirm, onReje
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setNarration({ text: data.text, source: data.source });
-    } catch (e) {
-      const evidence = match.reasons.length > 0
-        ? ` — ${match.reasons.map((r) => r.charAt(0).toLowerCase() + r.slice(1)).join(" · ")}`
-        : "";
+    } catch {
+      const evidence =
+        match.reasons.length > 0
+          ? ` — ${match.reasons.map((r) => r.charAt(0).toLowerCase() + r.slice(1)).join(" · ")}`
+          : "";
       setNarration({
         text: `The board pulled these two reports together with ${match.confidence}% confidence${evidence}.`,
         source: "fallback",
@@ -187,7 +190,7 @@ export default function MatchDialog({ open, a, b, match, busy, onConfirm, onReje
             animate={{ y: 0, opacity: 1, scale: 1 }}
             exit={{ y: 24, opacity: 0 }}
             transition={{ type: "spring", stiffness: 320, damping: 30 }}
-            className="ln-glass flex h-[90vh] w-full max-w-lg flex-col overflow-y-auto rounded-t-2xl p-5 shadow-2xl sm:h-auto sm:max-h-[92vh] sm:rounded-2xl sm:p-6"
+            className="ln-glass flex h-[92vh] w-full max-w-lg flex-col overflow-y-auto rounded-t-2xl p-5 shadow-2xl sm:h-auto sm:max-h-[92vh] sm:rounded-2xl sm:p-6"
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5">
@@ -196,7 +199,12 @@ export default function MatchDialog({ open, a, b, match, busy, onConfirm, onReje
                 </span>
                 <h2 className="text-xl font-bold text-zinc-50">Possible reunion</h2>
               </div>
-              <button type="button" onClick={onClose} className="flex h-11 w-11 items-center justify-center rounded-full p-1 text-zinc-500 hover:bg-white/10 hover:text-zinc-200 sm:h-8 sm:w-8" aria-label="Close">
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex h-11 w-11 items-center justify-center rounded-full p-1 text-zinc-500 hover:bg-white/10 hover:text-zinc-200 sm:h-8 sm:w-8"
+                aria-label="Close"
+              >
                 <X className="h-4 w-4" />
               </button>
             </div>
@@ -228,21 +236,29 @@ export default function MatchDialog({ open, a, b, match, busy, onConfirm, onReje
               </div>
             </div>
 
-            {/* Ownership Proof Verification Challenge */}
-            {(a.secretChallenge || b.secretChallenge) && (
-              <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs text-amber-200">
-                <div className="flex items-center gap-2 font-semibold text-amber-300">
-                  <ShieldCheck className="h-4.5 w-4.5 shrink-0" />
-                  <span className="text-sm">Ownership Proof Challenge</span>
-                </div>
-                <p className="mt-1.5 text-zinc-100 font-semibold text-sm">
-                  “{a.secretChallenge || b.secretChallenge}”
-                </p>
-                <p className="mt-1 text-xs text-zinc-300">
-                  Please verify this detail with the claimant before releasing the item.
-                </p>
+            {/* Ownership challenge — the question only, never the answer */}
+            <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs text-amber-200">
+              <div className="flex items-center gap-2 font-semibold text-amber-300">
+                <ShieldCheck className="h-4 w-4 shrink-0" />
+                <span className="text-sm">Ownership challenge</span>
               </div>
-            )}
+              {hasChallenge ? (
+                <>
+                  <p className="mt-1.5 text-sm font-semibold text-zinc-100">
+                    “{a.secretChallenge || b.secretChallenge}”
+                  </p>
+                  <p className="mt-1 text-zinc-300">
+                    The answer is stored only as a one-way hash — nobody, including this screen, can read it.
+                    Whoever collects the item has to answer it correctly. Two wrong tries locks the handover.
+                  </p>
+                </>
+              ) : (
+                <p className="mt-1.5 text-zinc-300">
+                  No private question was set on either report. The claim token is the only proof of ownership —
+                  add a question next time for a stronger check.
+                </p>
+              )}
+            </div>
 
             {/* confidence */}
             <div className="mt-4 flex items-center justify-between">
@@ -301,104 +317,140 @@ export default function MatchDialog({ open, a, b, match, busy, onConfirm, onReje
               )}
             </div>
 
-            {/* Safe Harbor Meetup & Handover Protocol */}
+            {/* Handover plan */}
             <div className="mt-5 rounded-2xl border border-indigo-500/25 bg-gradient-to-b from-indigo-950/40 via-zinc-900/60 to-zinc-950/80 p-4 shadow-xl">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-500/20 text-indigo-300 ring-1 ring-indigo-400/30">
-                    <ShieldCheck className="h-4 w-4" />
-                  </span>
-                  <div>
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-200">
-                      Safe Harbor Meetup Protocol
-                    </h4>
-                    <p className="text-[11px] text-zinc-400">Zero phone numbers or home addresses leaked</p>
-                  </div>
-                </div>
-                <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
-                  🔒 Anonymous
+              <div className="flex items-center gap-2">
+                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-500/20 text-indigo-300 ring-1 ring-indigo-400/30">
+                  <MapPin className="h-4 w-4" />
                 </span>
+                <div>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-200">How will it get back?</h4>
+                  <p className="text-[11px] text-zinc-400">No phone numbers or home addresses are exchanged.</p>
+                </div>
               </div>
 
-              {/* Safe Harbor Drop-off Points */}
-              <div className="mt-3.5 space-y-2">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Select Neutral Safe Desk</p>
-                <div className="grid gap-2">
-                  {safeHarborOptions.map((opt) => {
-                    const isSelected = selectedSpot === opt.name;
-                    return (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        onClick={() => setSelectedSpot(opt.name)}
+              {/* Mode */}
+              <div className="mt-3.5 grid gap-2">
+                {MODES.map((m) => {
+                  const isSelected = mode === m.id;
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => setMode(m.id)}
+                      className={cn(
+                        "flex items-start gap-2.5 rounded-xl border p-2.5 text-left transition-all cursor-pointer",
+                        isSelected
+                          ? "border-indigo-400/80 bg-indigo-500/15 shadow-md shadow-indigo-950/50"
+                          : "border-white/5 bg-white/[0.02] hover:border-white/15 hover:bg-white/[0.05]",
+                      )}
+                    >
+                      <span
                         className={cn(
-                          "group flex items-start gap-2.5 rounded-xl border p-2.5 text-left transition-all cursor-pointer",
-                          isSelected
-                            ? "border-indigo-400/80 bg-indigo-500/15 shadow-md shadow-indigo-950/50"
-                            : "border-white/5 bg-white/[0.02] hover:border-white/15 hover:bg-white/[0.05]"
+                          "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg",
+                          isSelected ? "bg-indigo-500 text-white" : "bg-white/10 text-zinc-400",
                         )}
                       >
-                        <div
+                        {m.id === "finder" ? <Lock className="h-4 w-4" /> : <MapPin className="h-4 w-4" />}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className={cn("text-xs font-semibold", isSelected ? "text-zinc-100" : "text-zinc-300")}>
+                            {m.title}
+                          </span>
+                          {isSelected && <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-indigo-400" />}
+                        </div>
+                        <p className="mt-0.5 text-[11px] text-zinc-400 leading-snug">{m.blurb}</p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Public places, nearest first */}
+              {mode === "public" && (
+                <div className="mt-3 space-y-2">
+                  {suggested.map((p) => {
+                    const isSelected = selectedPlaceId === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => setSelectedPlaceId(p.id)}
+                        className={cn(
+                          "flex w-full items-start gap-2.5 rounded-xl border p-2.5 text-left transition-all cursor-pointer",
+                          isSelected
+                            ? "border-emerald-400/70 bg-emerald-500/10"
+                            : "border-white/5 bg-white/[0.02] hover:border-white/15",
+                        )}
+                      >
+                        <span
                           className={cn(
-                            "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition",
-                            isSelected ? "bg-indigo-500 text-white" : "bg-white/10 text-zinc-400 group-hover:text-zinc-200"
+                            "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg",
+                            isSelected ? "bg-emerald-500 text-zinc-950" : "bg-white/10 text-zinc-400",
                           )}
                         >
-                          {opt.type === "metro" && <Building2 className="h-4 w-4" />}
-                          {opt.type === "cafe" && <Coffee className="h-4 w-4" />}
-                          {opt.type === "police" && <ShieldCheck className="h-4 w-4" />}
-                          {opt.type === "custom" && <MapPin className="h-4 w-4" />}
-                        </div>
+                          {placeIcon(p.kind)}
+                        </span>
                         <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center justify-between gap-1">
-                            <span className={cn("text-xs font-semibold leading-tight", isSelected ? "text-zinc-100" : "text-zinc-300")}>
-                              {opt.name}
-                            </span>
-                            <div className="flex items-center gap-1.5">
-                              <span
-                                className={cn(
-                                  "rounded-full px-2 py-0.5 text-[10px] font-semibold border",
-                                  opt.liabilityClass === "active"
-                                    ? "bg-indigo-500/20 border-indigo-400/30 text-indigo-300"
-                                    : "bg-emerald-500/20 border-emerald-400/30 text-emerald-300"
-                                )}
-                              >
-                                {opt.liabilityBadge}
-                              </span>
-                              {isSelected && <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-indigo-400" />}
-                            </div>
-                          </div>
-                          <p className="mt-0.5 text-[11px] text-zinc-400 leading-snug">{opt.desc}</p>
-                          <p className="mt-1 text-[10px] text-zinc-500 italic leading-tight">
-                            {opt.liabilityDetail}
-                          </p>
+                          <span className={cn("text-xs font-semibold", isSelected ? "text-zinc-100" : "text-zinc-300")}>
+                            {p.label}
+                          </span>
+                          <p className="mt-0.5 text-[11px] text-zinc-400 leading-snug">{p.detail}</p>
                         </div>
                       </button>
                     );
                   })}
                 </div>
-              </div>
+              )}
 
-              {/* Handover Time Window */}
+              {/* Map point */}
+              {mode === "map" && (
+                <div className="mt-3 space-y-2">
+                  <input
+                    value={mapLabel}
+                    onChange={(e) => setMapLabel(e.target.value)}
+                    placeholder="Name the spot (e.g. Corner shop, 5th Main)"
+                    className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:border-indigo-400/50"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => onRequestMapPick?.()}
+                    className={cn(
+                      "flex w-full items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-semibold transition",
+                      pickedPoint
+                        ? "border-emerald-400/50 bg-emerald-500/10 text-emerald-300"
+                        : "border-dashed border-white/20 text-zinc-300 hover:border-white/40",
+                    )}
+                  >
+                    <MapPin className="h-4 w-4" />
+                    {pickedPoint
+                      ? `Point set (${pickedPoint.lat.toFixed(4)}, ${pickedPoint.lng.toFixed(4)}) — tap to move`
+                      : "Drop the point on the map"}
+                  </button>
+                </div>
+              )}
+
+              {/* Time */}
               <div className="mt-3.5">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Custody Time Window</p>
-                <div className="mt-1.5 grid grid-cols-3 gap-1.5">
-                  {TIME_WINDOWS.map((tw) => {
-                    const isSelected = selectedTime === tw.label;
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Roughly when</p>
+                <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+                  {HANDOVER_TIME_OPTIONS.map((t) => {
+                    const isSelected = time === t;
                     return (
                       <button
-                        key={tw.id}
+                        key={t}
                         type="button"
-                        onClick={() => setSelectedTime(tw.label)}
+                        onClick={() => setTime(t)}
                         className={cn(
-                          "flex flex-col items-center justify-center rounded-xl border px-2 py-2 text-center transition-all",
+                          "flex items-center justify-center gap-1.5 rounded-xl border px-2 py-2 text-[11px] font-medium transition-all",
                           isSelected
-                            ? "border-amber-400/80 bg-amber-500/15 text-amber-200 shadow-sm"
-                            : "border-white/5 bg-white/[0.02] text-zinc-400 hover:border-white/15 hover:bg-white/[0.05]"
+                            ? "border-amber-400/80 bg-amber-500/15 text-amber-200"
+                            : "border-white/5 bg-white/[0.02] text-zinc-400 hover:border-white/15",
                         )}
                       >
-                        <Clock className={cn("h-3.5 w-3.5 mb-1", isSelected ? "text-amber-400" : "text-zinc-500")} />
-                        <span className="text-[10px] font-medium leading-tight">{tw.label}</span>
+                        <Clock className={cn("h-3.5 w-3.5", isSelected ? "text-amber-400" : "text-zinc-500")} />
+                        {t}
                       </button>
                     );
                   })}
@@ -408,7 +460,8 @@ export default function MatchDialog({ open, a, b, match, busy, onConfirm, onReje
               <div className="mt-3 rounded-lg border border-white/5 bg-black/30 p-2.5 flex items-center gap-2 text-[11px] text-zinc-400">
                 <Lock className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
                 <span>
-                  Generates an encrypted <strong className="text-zinc-200">#LN-XXXX</strong> token &amp; scannable Digital Return Pass for physical handover.
+                  You&apos;ll get a one-time claim token (like <strong className="text-zinc-200">#LN-8492</strong>). Only
+                  someone holding it can look up this handover.
                 </span>
               </div>
             </div>
@@ -418,13 +471,13 @@ export default function MatchDialog({ open, a, b, match, busy, onConfirm, onReje
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => onConfirm({ safeHarbor: selectedSpot, timeWindow: selectedTime })}
+                onClick={() => onConfirm(buildPlan())}
                 className={cn(
                   "flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold text-zinc-950 transition flex items-center justify-center gap-2",
                   "bg-gradient-to-r from-rose-400 to-orange-300 shadow-lg shadow-rose-950/40 hover:brightness-110 disabled:opacity-50",
                 )}
               >
-                {busy ? "Issuing Return Pass…" : "Yes — Reunite & Issue Return Pass"}
+                {busy ? "Confirming…" : "Yes — reunite them"}
               </button>
               <button
                 type="button"

@@ -1,4 +1,5 @@
 import type {
+  HandoverPlan,
   Item,
   ItemStatus,
   MatchDecision,
@@ -41,16 +42,28 @@ export interface LostNetData {
   /**
    * The ONLY path that transitions a match. Enforced here, not in UI:
    *   proposed|pendingReview -> confirmed|rejected
-   * Confirming marks both items matched and creates a reunion draft.
+   * Confirming marks both items matched and creates a published reunion that
+   * carries the handover plan and a one-time claim token.
    */
   decideMatch(
     id: string,
     decision: "confirmed" | "rejected",
-    details?: { safeHarbor?: string; timeWindow?: string },
+    handover?: HandoverPlan,
   ): Promise<{ match: MatchRecord; reunion?: Reunion }>;
   listReunions(): Promise<Reunion[]>;
   getReunion(id: string): Promise<Reunion | null>;
+  /** Resolves the one-time claim token the claimant presents. */
+  getReunionByToken(token: string): Promise<Reunion | null>;
   publishReunion(id: string, story?: string): Promise<Reunion>;
   updateCustodyState?(id: string, custodyState: "deposited" | "verified" | "released"): Promise<Reunion>;
+  /**
+   * Checks a spoken answer against the stored hash. Server-side only: the salt,
+   * the hash and the comparison never reach the browser. Locks the reunion
+   * after two failed attempts.
+   */
+  verifyClaim(
+    reunionId: string,
+    answer: string,
+  ): Promise<{ verified: boolean; attempts: number; locked: boolean; hasChallenge: boolean }>;
   resetDemoData?(): Promise<void>;
 }

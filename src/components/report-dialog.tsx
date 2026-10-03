@@ -2,10 +2,10 @@
 
 import { useState, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { X, MapPin, UploadCloud, Sparkles } from "lucide-react";
+import { X, MapPin, UploadCloud, LocateFixed, ShieldQuestion } from "lucide-react";
 import { CATEGORIES } from "@/lib/categories";
 import type { NewItemInput } from "@/lib/types";
-import { COLOR_TOKENS, cn } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 interface ReportDialogProps {
   open: boolean;
@@ -13,12 +13,49 @@ interface ReportDialogProps {
   onClose: () => void;
   onSubmit: (input: NewItemInput) => Promise<void>;
   busy: boolean;
+  /** Hides the form so the map behind it is tappable. */
+  onRequestMapPick?: () => void;
+  /** Drops the pin at the device's current position. */
+  onUseMyLocation?: (lat: number, lng: number) => void;
 }
 
 const COLOR_CHOICES = ["black", "white", "red", "blue", "green", "grey", "yellow", "brown", "silver", "gold", "orange", "pink"];
 const MATERIAL_CHOICES = ["leather", "metal", "plastic", "cotton", "wool", "canvas", "glass", "paper"];
 
-export default function ReportDialog({ open, pin, onClose, onSubmit, busy }: ReportDialogProps) {
+/** Downscale + re-encode so a phone photo doesn't become a multi-megabyte string. */
+function compressImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Could not read that file."));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("That file is not a readable image."));
+      img.onload = () => {
+        const max = 900;
+        const scale = Math.min(1, max / Math.max(img.width, img.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return reject(new Error("Could not process that image."));
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", 0.72));
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+export default function ReportDialog({
+  open,
+  pin,
+  onClose,
+  onSubmit,
+  busy,
+  onRequestMapPick,
+  onUseMyLocation,
+}: ReportDialogProps) {
   const [kind, setKind] = useState<"lost" | "found">("lost");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -29,24 +66,31 @@ export default function ReportDialog({ open, pin, onClose, onSubmit, busy }: Rep
   const [materials, setMaterials] = useState<string[]>([]);
   const [imageUrl, setImageUrl] = useState("");
   const [secretChallenge, setSecretChallenge] = useState("");
+  const [secretAnswer, setSecretAnswer] = useState("");
   const [handoverNote, setHandoverNote] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [geoError, setGeoError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
 
-  const handleFileUpload = (file: File) => {
+  const handleFileUpload = async (file: File) => {
+    setError(null);
     if (!file.type.startsWith("image/")) {
-      setError("Please select a valid image file.");
+      setError("Please choose an image file.");
       return;
     }
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      if (typeof e.target?.result === "string") {
-        setImageUrl(e.target.result);
+    try {
+      const compressed = await compressImage(file);
+      if (compressed.length > 500_000) {
+        setError("That photo is still too large after resizing. Try a smaller one.");
+        return;
       }
-    };
-    reader.readAsDataURL(file);
+      setImageUrl(compressed);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not use that image.");
+    }
   };
 
   const toggle = (list: string[], setList: (v: string[]) => void, value: string) => {
@@ -62,14 +106,48 @@ export default function ReportDialog({ open, pin, onClose, onSubmit, busy }: Rep
     setMaterials([]);
     setImageUrl("");
     setSecretChallenge("");
+    setSecretAnswer("");
     setHandoverNote("");
     setError(null);
+    setGeoError(null);
+  };
+
+  const useMyLocation = () => {
+    setGeoError(null);
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setGeoError("This browser can't share a location. Tap the map instead.");
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        onUseMyLocation?.(pos.coords.latitude, pos.coords.longitude);
+        setLocating(false);
+      },
+      (err) => {
+        setLocating(false);
+        setGeoError(
+          err.code === err.PERMISSION_DENIED
+            ? "Location permission was blocked. Tap the map instead."
+            : "Couldn't get your location. Tap the map instead.",
+        );
+      },
+      { enableHighAccuracy: true, timeout: 10_000, maximumAge: 0 },
+    );
   };
 
   const submit = async () => {
     setError(null);
     if (!title.trim() || !description.trim() || !pin || !occurredAt) {
-      setError("Title, description, a pinned location and a time are required.");
+      setError("A title, a description, a location and a time are required.");
+      return;
+    }
+    if (secretChallenge.trim() && !secretAnswer.trim()) {
+      setError("You wrote an ownership question but no answer. Add the answer, or clear the question.");
+      return;
+    }
+    if (secretAnswer.trim() && !secretChallenge.trim()) {
+      setError("You wrote an answer but no question. Add the question the claimant will be asked.");
       return;
     }
     await onSubmit({
@@ -85,6 +163,7 @@ export default function ReportDialog({ open, pin, onClose, onSubmit, busy }: Rep
       materials,
       imageUrl: imageUrl.trim() || undefined,
       secretChallenge: secretChallenge.trim() || undefined,
+      secretAnswer: secretAnswer.trim() || undefined,
       handoverNote: handoverNote.trim() || undefined,
     });
     reset();
@@ -104,11 +183,16 @@ export default function ReportDialog({ open, pin, onClose, onSubmit, busy }: Rep
             animate={{ y: 0, opacity: 1, scale: 1 }}
             exit={{ y: 24, opacity: 0 }}
             transition={{ type: "spring", stiffness: 320, damping: 30 }}
-            className="ln-glass flex h-[100dvh] w-full max-w-lg flex-col overflow-y-auto rounded-none p-5 shadow-2xl sm:h-auto sm:max-h-[90dvh] sm:rounded-2xl sm:p-6"
+            className="ln-glass flex h-[96dvh] w-full max-w-lg flex-col overflow-y-auto rounded-t-2xl p-5 shadow-2xl sm:h-auto sm:max-h-[92dvh] sm:rounded-2xl sm:p-6"
           >
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-zinc-50">Report something</h2>
-              <button type="button" onClick={onClose} className="flex h-11 w-11 items-center justify-center rounded-full p-1 text-zinc-500 hover:bg-white/10 hover:text-zinc-200 sm:h-8 sm:w-8" aria-label="Close">
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex h-11 w-11 items-center justify-center rounded-full p-1 text-zinc-500 hover:bg-white/10 hover:text-zinc-200 sm:h-8 sm:w-8"
+                aria-label="Close"
+              >
                 <X className="h-4 w-4" />
               </button>
             </div>
@@ -144,7 +228,7 @@ export default function ReportDialog({ open, pin, onClose, onSubmit, busy }: Rep
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="Anything distinctive — color, scratches, what was inside…"
+                placeholder="Anything distinctive — colour, scratches, what was inside…"
                 rows={3}
                 className="w-full resize-none rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:border-indigo-400/50"
               />
@@ -165,6 +249,45 @@ export default function ReportDialog({ open, pin, onClose, onSubmit, busy }: Rep
                 placeholder="Where? (e.g. 100 Feet Road, near the café)"
                 className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:border-indigo-400/50"
               />
+
+              {/* Location */}
+              <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                <p className="text-xs font-medium text-zinc-400">Where exactly</p>
+                <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={useMyLocation}
+                    disabled={locating}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-indigo-400/40 bg-indigo-500/10 px-3 py-2.5 text-sm font-semibold text-indigo-200 transition hover:bg-indigo-500/20 disabled:opacity-50"
+                  >
+                    <LocateFixed className={cn("h-4 w-4", locating && "animate-spin")} />
+                    {locating ? "Finding you…" : "Use my current location"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onRequestMapPick?.()}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-white/15 px-3 py-2.5 text-sm font-semibold text-zinc-200 transition hover:bg-white/5"
+                  >
+                    <MapPin className="h-4 w-4" />
+                    Pick on the map
+                  </button>
+                </div>
+                {geoError && <p className="mt-2 text-[11px] text-amber-400">{geoError}</p>}
+                <div
+                  className={cn(
+                    "mt-2 flex items-center gap-2 rounded-lg border px-3 py-2 text-xs",
+                    pin
+                      ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-300"
+                      : "border-dashed border-white/20 text-zinc-500",
+                  )}
+                >
+                  <MapPin className="h-3.5 w-3.5" />
+                  {pin
+                    ? `Pinned at ${pin.lat.toFixed(4)}, ${pin.lng.toFixed(4)} — use the map to move it`
+                    : "No location yet — use your current location or pick a point on the map"}
+                </div>
+              </div>
+
               <div>
                 <label className="text-xs font-medium text-zinc-500">When did this happen?</label>
                 <input
@@ -177,7 +300,7 @@ export default function ReportDialog({ open, pin, onClose, onSubmit, busy }: Rep
 
               {/* attributes */}
               <div>
-                <p className="text-xs font-medium text-zinc-500">Colors (optional)</p>
+                <p className="text-xs font-medium text-zinc-500">Colours (optional)</p>
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
                   {COLOR_CHOICES.map((c) => (
                     <button
@@ -217,11 +340,11 @@ export default function ReportDialog({ open, pin, onClose, onSubmit, busy }: Rep
                 </div>
               </div>
 
-              {/* Photo Evidence with Direct Upload / Drag-and-Drop / Samples */}
+              {/* Photo */}
               <div>
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-zinc-300">Photo Evidence (optional)</label>
-                  <span className="text-[11px] text-zinc-500">Drag & drop or Click to upload</span>
+                  <label className="text-xs font-semibold text-zinc-300">Photo (optional)</label>
+                  <span className="text-[11px] text-zinc-500">Resized automatically</span>
                 </div>
 
                 <input
@@ -230,27 +353,27 @@ export default function ReportDialog({ open, pin, onClose, onSubmit, busy }: Rep
                   ref={fileInputRef}
                   onChange={(e) => {
                     const file = e.target.files?.[0];
-                    if (file) handleFileUpload(file);
+                    if (file) void handleFileUpload(file);
                   }}
                   className="hidden"
                 />
 
                 {imageUrl ? (
-                  <div className="mt-1.5 relative h-36 w-full rounded-2xl overflow-hidden border border-white/20 bg-black/50 group">
+                  <div className="relative mt-1.5 h-36 w-full overflow-hidden rounded-2xl border border-white/20 bg-black/50 group">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={imageUrl} alt="Item preview" className="h-full w-full object-cover" />
-                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-2">
+                    <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/50 opacity-0 transition group-hover:opacity-100">
                       <button
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
-                        className="rounded-xl bg-white/20 backdrop-blur-md px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/30 transition"
+                        className="rounded-xl bg-white/20 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-md transition hover:bg-white/30"
                       >
-                        Change Photo
+                        Change photo
                       </button>
                       <button
                         type="button"
                         onClick={() => setImageUrl("")}
-                        className="rounded-xl bg-rose-500/80 backdrop-blur-md px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-500 transition"
+                        className="rounded-xl bg-rose-500/80 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-md transition hover:bg-rose-500"
                       >
                         Remove
                       </button>
@@ -267,80 +390,60 @@ export default function ReportDialog({ open, pin, onClose, onSubmit, busy }: Rep
                       e.preventDefault();
                       setIsDragging(false);
                       const file = e.dataTransfer.files?.[0];
-                      if (file) handleFileUpload(file);
+                      if (file) void handleFileUpload(file);
                     }}
                     onClick={() => fileInputRef.current?.click()}
                     className={cn(
-                      "mt-1.5 flex flex-col items-center justify-center rounded-2xl border-2 border-dashed p-4 text-center cursor-pointer transition",
+                      "mt-1.5 flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed p-4 text-center transition",
                       isDragging
                         ? "border-indigo-400 bg-indigo-500/10 text-indigo-300"
                         : "border-white/15 bg-white/5 text-zinc-400 hover:border-white/30 hover:bg-white/10",
                     )}
                   >
-                    <UploadCloud className="h-6 w-6 text-indigo-400 mb-1" />
-                    <p className="text-xs font-semibold text-zinc-200">
-                      Upload from phone / computer or drag & drop
-                    </p>
-                    <p className="text-[11px] text-zinc-500 mt-0.5">PNG, JPG, WebP up to 10MB</p>
+                    <UploadCloud className="mb-1 h-6 w-6 text-indigo-400" />
+                    <p className="text-xs font-semibold text-zinc-200">Upload a photo or drag one in</p>
+                    <p className="mt-0.5 text-[11px] text-zinc-500">PNG, JPG or WebP</p>
                   </div>
                 )}
-
-                {/* Sample Preset Chips for 1-Click Demo */}
-                <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                  <span className="text-[11px] text-zinc-500 flex items-center gap-1">
-                    <Sparkles className="h-3 w-3 text-amber-400" /> Presets:
-                  </span>
-                  {[
-                    { label: "🔑 Honda Key", url: "https://images.unsplash.com/photo-1582139329536-e7284fece509?w=600&auto=format&fit=crop&q=80" },
-                    { label: "🎧 Earbud", url: "https://images.unsplash.com/photo-1600294037681-c80b4cb5b434?w=600&auto=format&fit=crop&q=80" },
-                    { label: "🎒 Grey Bag", url: "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=600&auto=format&fit=crop&q=80" },
-                  ].map((preset) => (
-                    <button
-                      key={preset.label}
-                      type="button"
-                      onClick={() => setImageUrl(preset.url)}
-                      className="rounded-full bg-white/5 hover:bg-indigo-500/20 border border-white/10 hover:border-indigo-400/40 px-2.5 py-0.5 text-[11px] text-zinc-300 hover:text-indigo-200 transition"
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
-                </div>
               </div>
 
-              {/* Ownership Proof Question */}
-              <div>
-                <label className="text-xs font-medium text-zinc-400">🛡️ Proof of Ownership Challenge (optional)</label>
+              {/* Ownership challenge */}
+              <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.06] p-3">
+                <label className="flex items-center gap-1.5 text-xs font-semibold text-amber-200">
+                  <ShieldQuestion className="h-3.5 w-3.5" />
+                  Ownership challenge (optional, but recommended)
+                </label>
+                <p className="mt-1 text-[11px] leading-snug text-zinc-400">
+                  Write a question only the real owner could answer. The answer is hashed on the server and never shown
+                  anywhere — the claimant has to say it out loud.
+                </p>
                 <input
                   type="text"
                   value={secretChallenge}
                   onChange={(e) => setSecretChallenge(e.target.value)}
-                  placeholder="e.g. What color is the keychain tag or sticker on back?"
-                  className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-indigo-400 focus:outline-none"
+                  placeholder="Question — e.g. What is engraved on the keyring?"
+                  className="mt-2 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-amber-400/60 focus:outline-none"
                 />
-                <p className="mt-0.5 text-[11px] text-zinc-500">A secret question only the true owner can answer to verify ownership.</p>
+                <input
+                  type="text"
+                  value={secretAnswer}
+                  onChange={(e) => setSecretAnswer(e.target.value)}
+                  disabled={!secretChallenge.trim()}
+                  placeholder={secretChallenge.trim() ? "The answer — e.g. the letter R" : "Write the question first"}
+                  className="mt-2 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-amber-400/60 focus:outline-none disabled:opacity-40"
+                />
               </div>
 
-              {/* Safe Handover Note */}
+              {/* Handover note */}
               <div>
-                <label className="text-xs font-medium text-zinc-400">📍 Safe Handover Coordination (optional)</label>
+                <label className="text-xs font-medium text-zinc-400">Anything about handing it over? (optional)</label>
                 <input
                   type="text"
                   value={handoverNote}
                   onChange={(e) => setHandoverNote(e.target.value)}
-                  placeholder="e.g. Left with manager at cafe; or Metro station pickup"
+                  placeholder="e.g. I can leave it at the shop on 5th Main"
                   className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-indigo-400 focus:outline-none"
                 />
-                <p className="mt-0.5 text-[11px] text-zinc-500">Pickup or locker instructions revealed upon verified match.</p>
-              </div>
-
-              <div
-                className={cn(
-                  "flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm",
-                  pin ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-300" : "border-dashed border-white/20 text-zinc-500",
-                )}
-              >
-                <MapPin className="h-4 w-4" />
-                {pin ? "Location pinned — click the map to move it" : "Click the map to pin the exact spot"}
               </div>
 
               {error && <p className="text-xs text-rose-400">{error}</p>}
@@ -351,7 +454,7 @@ export default function ReportDialog({ open, pin, onClose, onSubmit, busy }: Rep
                 onClick={submit}
                 className="w-full rounded-xl bg-gradient-to-r from-indigo-500 to-fuchsia-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-950/40 transition hover:brightness-110 disabled:opacity-50"
               >
-                {busy ? "Posting…" : kind === "lost" ? "Post it on the board" : "Post it on the board"}
+                {busy ? "Posting…" : "Post it on the board"}
               </button>
             </div>
           </motion.div>

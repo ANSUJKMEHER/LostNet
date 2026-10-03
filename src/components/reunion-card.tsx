@@ -1,13 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   MapPin,
   Pencil,
   ShieldCheck,
   Ticket,
-  QrCode,
   CheckCircle2,
   Heart,
   Sparkles,
@@ -15,8 +14,10 @@ import {
   Clock,
   ArrowRight,
 } from "lucide-react";
+import QRCode from "react-qr-code";
 import type { Reunion, Item } from "@/lib/types";
 import { CategoryChip } from "@/components/board-map";
+import { HANDOVER_MODE_LABELS } from "@/lib/handover";
 import { timeAgo, cn } from "@/lib/utils";
 
 interface ReunionCardProps {
@@ -31,23 +32,22 @@ export default function ReunionCard({ reunion, a, b }: ReunionCardProps) {
   const [displayedStory, setDisplayedStory] = useState(reunion.story || "");
   const [isSaving, setIsSaving] = useState(false);
   const [showPass, setShowPass] = useState(false);
+  const [origin, setOrigin] = useState("");
 
-  // Derive stable fallback metadata if not explicitly provided
-  const claimToken =
-    reunion.claimToken ||
-    `#LN-${Math.abs(reunion._id.split("").reduce((acc, char) => ((acc << 5) - acc + char.charCodeAt(0)) | 0, 0) % 9000 + 1000)}`;
+  useEffect(() => {
+    if (typeof window !== "undefined") setOrigin(window.location.origin);
+  }, []);
 
-  const safeHarbor =
-    reunion.safeHarbor ||
-    a?.handoverNote ||
-    b?.handoverNote ||
-    "Indiranagar Metro Station Customer Desk, Gate 2";
-
-  const verifiedProof =
-    reunion.verifiedChallengeProof ||
-    a?.secretChallenge ||
-    b?.secretChallenge ||
-    "Physical trait & secret mark verified";
+  // Real values only — nothing is invented when a field is missing.
+  const claimToken = reunion.claimToken ?? null;
+  const handoverLabel = reunion.handover?.label ?? reunion.safeHarbor ?? null;
+  const handoverMode = reunion.handover?.mode;
+  const challengeQuestion = reunion.challengeQuestion ?? a?.secretChallenge ?? b?.secretChallenge ?? null;
+  const qrValue = claimToken && origin ? `${origin}/?custody=${encodeURIComponent(claimToken)}` : "";
+  const isReleased = reunion.custodyState === "released";
+  const isDeposited = reunion.custodyState === "deposited";
+  const proofVerified = Boolean(reunion.verifiedAt);
+  const hasChallenge = Boolean(challengeQuestion);
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -75,14 +75,21 @@ export default function ReunionCard({ reunion, a, b }: ReunionCardProps) {
           <div>
             <span className="text-xs font-bold tracking-wider text-rose-400 uppercase flex items-center gap-1.5 mb-1">
               <Sparkles className="h-3.5 w-3.5" />
-              Verified City Reunion
+              City reunion
             </span>
             <h2 className="text-lg sm:text-xl font-bold text-zinc-100">{reunion.title}</h2>
           </div>
           <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-3 py-1 text-xs font-semibold text-emerald-300 shadow-sm">
+            <span
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold border shadow-sm",
+                isReleased
+                  ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-300"
+                  : "bg-amber-500/15 border-amber-500/30 text-amber-300",
+              )}
+            >
               <CheckCircle2 className="h-3.5 w-3.5" />
-              Returned & Reunited
+              {isReleased ? "Returned & reunited" : isDeposited ? "At the desk" : "Match confirmed"}
             </span>
             <span className="rounded-full bg-white/5 border border-white/10 px-2.5 py-1 text-xs font-medium text-zinc-400">
               {reunion.status}
@@ -90,28 +97,36 @@ export default function ReunionCard({ reunion, a, b }: ReunionCardProps) {
           </div>
         </div>
 
-        {/* 4-Stage Custody Journey Stepper */}
+        {/* Custody journey — reflects real state, not an assumption */}
         <div className="mt-4 rounded-xl bg-white/5 p-3 sm:p-3.5 border border-white/5">
           <p className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider mb-2.5">
-            Custody Journey Protocol
+            Custody journey
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-            <div className="flex items-center gap-2 text-emerald-400 font-medium">
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/20 text-[10px] font-bold">1</span>
-              <span>Pinned on Map</span>
-            </div>
-            <div className="flex items-center gap-2 text-emerald-400 font-medium">
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/20 text-[10px] font-bold">2</span>
-              <span>Resonance Pulled</span>
-            </div>
-            <div className="flex items-center gap-2 text-emerald-400 font-medium">
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/20 text-[10px] font-bold">3</span>
-              <span>Proof Verified</span>
-            </div>
-            <div className="flex items-center gap-2 text-emerald-300 font-bold">
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/30 text-[10px] font-bold">4</span>
-              <span>Handed Back</span>
-            </div>
+            {[
+              { label: "Reported", done: true },
+              { label: "Matched", done: true },
+              {
+                label: proofVerified ? "Ownership checked" : hasChallenge ? "Ownership pending" : "No question set",
+                done: proofVerified,
+              },
+              { label: isReleased ? "Handed back" : "Not handed back", done: isReleased },
+            ].map((s, i) => (
+              <div
+                key={s.label}
+                className={cn("flex items-center gap-2 font-medium", s.done ? "text-emerald-400" : "text-zinc-500")}
+              >
+                <span
+                  className={cn(
+                    "flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold",
+                    s.done ? "bg-emerald-500/20" : "bg-white/10",
+                  )}
+                >
+                  {i + 1}
+                </span>
+                <span>{s.label}</span>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -188,10 +203,10 @@ export default function ReunionCard({ reunion, a, b }: ReunionCardProps) {
           <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-xs text-amber-200 flex flex-col justify-between">
             <div className="flex items-center gap-1.5 font-semibold text-amber-300">
               <ShieldCheck className="h-4 w-4 shrink-0" />
-              <span>Zero-Knowledge Proof Verified</span>
+              <span>Ownership question</span>
             </div>
             <p className="mt-1 text-xs text-zinc-200 italic leading-relaxed line-clamp-2">
-              “{verifiedProof}”
+              {challengeQuestion ? `“${challengeQuestion}”` : "No private question was set on this handover."}
             </p>
           </div>
 
@@ -199,14 +214,14 @@ export default function ReunionCard({ reunion, a, b }: ReunionCardProps) {
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-1.5 font-semibold text-emerald-300">
                 <MapPin className="h-4 w-4 shrink-0" />
-                <span>Safe Harbor Drop-off</span>
+                <span>Handover</span>
               </span>
               <span className="font-mono font-bold text-xs bg-emerald-950/60 border border-emerald-500/40 px-2 py-0.5 rounded text-emerald-300">
-                {claimToken}
+                {claimToken ?? "no token"}
               </span>
             </div>
             <p className="mt-1 text-xs text-zinc-200 leading-relaxed truncate">
-              {safeHarbor}
+              {handoverLabel ?? (handoverMode ? HANDOVER_MODE_LABELS[handoverMode] : "Not arranged yet")}
             </p>
           </div>
         </div>
@@ -339,7 +354,7 @@ export default function ReunionCard({ reunion, a, b }: ReunionCardProps) {
                       One-Time Claim Token
                     </p>
                     <p className="text-3xl font-extrabold font-mono tracking-tight text-white mt-0.5">
-                      {claimToken}
+                      {claimToken ?? "—"}
                     </p>
                   </div>
                   <div className="text-right">
@@ -347,49 +362,48 @@ export default function ReunionCard({ reunion, a, b }: ReunionCardProps) {
                       Custody Status
                     </p>
                     <span className="inline-block mt-1 rounded-full bg-emerald-500/20 border border-emerald-500/40 px-3 py-1 text-xs font-bold text-emerald-300">
-                      RELEASED & VERIFIED
+                      {isReleased ? "RELEASED" : isDeposited ? "AT THE DESK" : "WITH THE FINDER"}
                     </span>
                   </div>
                 </div>
 
-                {/* Safe Harbor Drop-off point */}
+                {/* Handover point */}
                 <div className="rounded-2xl bg-white/5 border border-white/10 p-3.5">
                   <p className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
                     <MapPin className="h-3.5 w-3.5 text-emerald-400" />
-                    Designated Safe Harbor Point
+                    Handover
                   </p>
                   <p className="text-sm font-semibold text-white mt-1">
-                    {safeHarbor}
+                    {handoverLabel ?? (handoverMode ? HANDOVER_MODE_LABELS[handoverMode] : "Not arranged yet")}
                   </p>
                 </div>
 
-                {/* Zero-Knowledge Proof Banner */}
+                {/* Ownership question — the answer is never displayed */}
                 <div className="rounded-2xl bg-amber-500/10 border border-amber-500/30 p-3.5">
                   <p className="text-[11px] font-semibold text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
                     <ShieldCheck className="h-3.5 w-3.5" />
-                    Ownership Proof Challenge
+                    Ownership challenge
                   </p>
                   <p className="text-xs text-zinc-200 mt-1 italic">
-                    “{verifiedProof}”
+                    {challengeQuestion ? `“${challengeQuestion}”` : "No private question was set on this handover."}
                   </p>
                 </div>
 
                 {/* Universal Web QR Verification */}
                 <div className="flex items-center gap-4 rounded-2xl bg-white/5 border border-white/10 p-4">
-                  <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl bg-white p-2">
-                    {/* Visual QR representation */}
-                    <QrCode className="h-full w-full text-zinc-950" />
+                  <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl bg-white p-1.5">
+                    {qrValue ? (
+                      <QRCode value={qrValue} size={68} bgColor="#ffffff" fgColor="#09090b" />
+                    ) : (
+                      <span className="px-1 text-center text-[9px] text-zinc-500">No token issued</span>
+                    )}
                   </div>
                   <div className="space-y-1 text-xs">
-                    <p className="font-bold text-zinc-100 flex items-center gap-1">
-                      Universal Web Verification
-                    </p>
+                    <p className="font-bold text-zinc-100 flex items-center gap-1">Scan to open the custody desk</p>
                     <p className="text-zinc-400 leading-snug text-[11px]">
-                      Counter staff or finder can scan with any phone camera to verify custody release without downloading an app.
+                      Any phone camera opens this board with the claim token already filled in — no app, no login.
                     </p>
-                    <p className="text-[10px] font-mono text-emerald-400 pt-0.5">
-                      URL: lostnet.city/claim/{claimToken.replace("#", "")}
-                    </p>
+                    <p className="text-[10px] font-mono text-emerald-400 pt-0.5">{qrValue || "—"}</p>
                   </div>
                 </div>
 

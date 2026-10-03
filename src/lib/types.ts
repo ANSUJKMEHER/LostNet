@@ -29,7 +29,16 @@ export interface Item {
   materials: string[];
   status: ItemStatus;
   imageUrl?: string;
+  /**
+   * The public half of the ownership challenge: the question a claimant must
+   * answer. Safe to show; useless on its own.
+   */
   secretChallenge?: string;
+  /** SERVER ONLY — never returned by a read path. Random per-item salt. */
+  secretSalt?: string;
+  /** SERVER ONLY — never returned by a read path. PBKDF2 hash of the answer. */
+  secretAnswerHash?: string;
+  /** Free-text note from the reporter about where they'd like to hand it over. */
   handoverNote?: string;
 }
 
@@ -46,6 +55,8 @@ export interface NewItemInput {
   materials: string[];
   imageUrl?: string;
   secretChallenge?: string;
+  /** Plaintext answer supplied by the reporter; hashed before it is stored. */
+  secretAnswer?: string;
   handoverNote?: string;
 }
 
@@ -95,6 +106,19 @@ export interface MatchRecord {
   isAmbiguous?: boolean;
 }
 
+/** How the two sides plan to physically hand the item over. */
+export type HandoverMode = "public" | "map" | "finder";
+
+export interface HandoverPlan {
+  mode: HandoverMode;
+  /** Human-readable place name ("Metro Gate 2", "corner shop, 5th Main"). */
+  label?: string;
+  /** Exact point when the place was chosen on the map. */
+  point?: GeoPoint | null;
+  /** Rough agreed time, free text. */
+  time?: string;
+}
+
 export interface Reunion {
   _id: string;
   matchId: string;
@@ -103,10 +127,20 @@ export interface Reunion {
   status: "draft" | "published";
   createdAt: string;
   publishedAt?: string;
+  /** Where the handover happens. `safeHarbor` mirrors `handover.label` for display. */
   safeHarbor?: string;
+  handover?: HandoverPlan;
   claimToken?: string;
   custodyState?: "deposited" | "verified" | "released";
-  verifiedChallengeProof?: string;
+  /**
+   * Snapshot of the ownership question, revealed only to someone holding the
+   * claim token. The answer is never stored here — only its hash, on the item.
+   */
+  challengeQuestion?: string;
+  /** Failed verification attempts; the desk locks after two. */
+  claimAttempts?: number;
+  /** Set when the desk verifies the challenge. */
+  verifiedAt?: string;
 }
 
 export interface Settings {
