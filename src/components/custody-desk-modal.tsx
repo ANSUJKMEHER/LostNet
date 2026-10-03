@@ -30,9 +30,17 @@ interface CustodyDeskModalProps {
   open: boolean;
   onClose: () => void;
   onReunionUpdated?: () => void;
+  initialToken?: string;
+  autoVerifyDemo?: boolean;
 }
 
-export default function CustodyDeskModal({ open, onClose, onReunionUpdated }: CustodyDeskModalProps) {
+export default function CustodyDeskModal({
+  open,
+  onClose,
+  onReunionUpdated,
+  initialToken,
+  autoVerifyDemo,
+}: CustodyDeskModalProps) {
   const [reunions, setReunions] = useState<EnrichedReunion[]>([]);
   const [loading, setLoading] = useState(false);
   const [tokenInput, setTokenInput] = useState("");
@@ -69,12 +77,17 @@ export default function CustodyDeskModal({ open, onClose, onReunionUpdated }: Cu
       fetchReunions();
       setReleaseSuccess(false);
       setChecklist({ qrScanned: true, challengeVerified: false, itemInspected: false });
+      if (initialToken) {
+        setTokenInput(initialToken);
+      } else {
+        setTokenInput("");
+      }
       setClaimantProofInput("");
       setProofResult("idle");
       setFailedAttempts(0);
       setShowHint(false);
     }
-  }, [open, fetchReunions]);
+  }, [open, fetchReunions, initialToken]);
 
   // Active selected reunion
   const activeReunion = useMemo(() => {
@@ -97,6 +110,25 @@ export default function CustodyDeskModal({ open, onClose, onReunionUpdated }: Cu
       "Red 'R' tag"
     );
   }, [activeReunion]);
+
+  // Automated flow for live hackathon demo
+  useEffect(() => {
+    if (open && autoVerifyDemo && activeReunion && !releaseSuccess) {
+      const secret = expectedSecret || "Red 'R' tag";
+      const t1 = setTimeout(() => {
+        setClaimantProofInput(secret);
+      }, 700);
+      const t2 = setTimeout(() => {
+        setProofResult("verified");
+        setChecklist({ qrScanned: true, challengeVerified: true, itemInspected: true });
+        sounds.playSnap();
+      }, 1500);
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+      };
+    }
+  }, [open, autoVerifyDemo, activeReunion, expectedSecret, releaseSuccess]);
 
   const isLockedOut = failedAttempts >= 2;
 

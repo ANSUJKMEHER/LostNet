@@ -16,6 +16,9 @@ import {
   ShieldCheck,
   LogOut,
   Building2,
+  Ticket,
+  SkipForward,
+  CheckCircle2,
 } from "lucide-react";
 import BoardMap, { type MatchFlow } from "@/components/board-map";
 import ItemPanel from "@/components/item-panel";
@@ -24,6 +27,7 @@ import MatchDialog from "@/components/match-dialog";
 import CategoryFilter from "@/components/category-filter";
 import ManifestoModal from "@/components/manifesto-modal";
 import CustodyDeskModal from "@/components/custody-desk-modal";
+import ReturnPassModal, { type ReturnPassData } from "@/components/return-pass-modal";
 import type { Item, MatchRecord, NewItemInput } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useLiveUpdates } from "@/hooks/use-live-updates";
@@ -54,7 +58,15 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
   const [mapTheme, setMapTheme] = useState<"dark" | "light">("dark");
   const [manifestoOpen, setManifestoOpen] = useState(false);
   const [custodyDeskOpen, setCustodyDeskOpen] = useState(false);
+  const [custodyInitialToken, setCustodyInitialToken] = useState<string | undefined>(undefined);
+  const [custodyAutoVerify, setCustodyAutoVerify] = useState(false);
+  const [returnPassOpen, setReturnPassOpen] = useState(false);
+  const [returnPassData, setReturnPassData] = useState<ReturnPassData | null>(null);
+  const [demoRunning, setDemoRunning] = useState(false);
+  const [demoStep, setDemoStep] = useState<1 | 2 | 3 | 4 | 5>(1);
   const timerRef = useRef<number | null>(null);
+  const demoTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   // Simulated Google Auth / Citizen Profile State
   const [user, setUser] = useState<{
@@ -158,9 +170,29 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
   }, [items, kindFilter, activeCategories, searchQuery]);
 
   useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (
+        (e.key === "/" && !["INPUT", "TEXTAREA"].includes((e.target as HTMLElement)?.tagName)) ||
+        ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k")
+      ) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+      if (e.key === "Escape" && searchQuery) {
+        setSearchQuery("");
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [searchQuery]);
+
+  useEffect(() => {
     return () => {
       if (timerRef.current !== null) {
         window.clearTimeout(timerRef.current);
+      }
+      if (demoTimerRef.current !== null) {
+        clearTimeout(demoTimerRef.current);
       }
     };
   }, []);
@@ -214,6 +246,14 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
     [beginFlow, flashNotice],
   );
 
+  const stopDemo = useCallback(() => {
+    if (demoTimerRef.current) clearTimeout(demoTimerRef.current);
+    setDemoRunning(false);
+    setReturnPassOpen(false);
+    setCustodyDeskOpen(false);
+    setCustodyAutoVerify(false);
+  }, []);
+
   const confirmMatch = useCallback(
     async (details: { safeHarbor: string; timeWindow: string }) => {
       if (!matchDialog) return;
@@ -237,6 +277,18 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
         sounds.playReunionChime();
         setMatchDialog(null);
         setFlow(null);
+
+        const rData: ReturnPassData = data.reunion || {
+          _id: data.match?._id || "reunion-01",
+          title: `${matchDialog.a.title} × ${matchDialog.b.title}`,
+          claimToken: "#LN-8492",
+          safeHarbor: details.safeHarbor,
+          verifiedChallengeProof: matchDialog.a.secretChallenge || matchDialog.b.secretChallenge || "Red 'R' tag",
+          custodyState: "deposited",
+        };
+        setReturnPassData(rData);
+        setReturnPassOpen(true);
+
         flashNotice({
           kind: "reunion",
           text: `Reunited: "${matchDialog.a.title}" & "${matchDialog.b.title}" · Handover at ${details.safeHarbor}`,
@@ -251,30 +303,51 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
     [matchDialog, flashNotice],
   );
 
+  const advanceDemoStep = useCallback(() => {
+    if (demoTimerRef.current) clearTimeout(demoTimerRef.current);
+    if (demoStep === 1) {
+      setDemoStep(2);
+      const target = items.find((i) => i._id === "lost-01") || items[0];
+      if (target) proposeFor(target);
+    } else if (demoStep === 2) {
+      confirmMatch({
+        safeHarbor: "Indiranagar Metro (Gate 2 Customer Desk)",
+        timeWindow: "⚡ Express (Within 2 hrs)",
+      });
+      setDemoStep(3);
+    } else if (demoStep === 3) {
+      setReturnPassOpen(false);
+      setCustodyInitialToken(returnPassData?.claimToken || "#LN-8492");
+      setCustodyAutoVerify(true);
+      setCustodyDeskOpen(true);
+      setDemoStep(4);
+    } else if (demoStep === 4) {
+      setCustodyDeskOpen(false);
+      setDemoStep(5);
+    } else {
+      stopDemo();
+    }
+  }, [demoStep, items, proposeFor, confirmMatch, returnPassData, stopDemo]);
+
   const runTour = useCallback(async () => {
+    if (demoTimerRef.current) clearTimeout(demoTimerRef.current);
     setActiveCategories(new Set());
     setKindFilter("all");
     setSearchQuery("");
+    setReturnPassOpen(false);
+    setCustodyDeskOpen(false);
+    setCustodyAutoVerify(false);
+    setDemoRunning(true);
+    setDemoStep(1);
+    sounds.playSnap();
 
     // Check if lost-01 x found-01 is available
     let target = items.find((i) => i._id === "lost-01" && i.status === "open");
     let candidate = items.find((i) => i._id === "found-01" && i.status === "open");
 
-    // If not, check lost-03 x found-03 (earbuds, 69%)
+    // If not, automatically reset the demo dataset to guarantee the 79% clean match
     if (!target || !candidate) {
-      target = items.find((i) => i._id === "lost-03" && i.status === "open");
-      candidate = items.find((i) => i._id === "found-03" && i.status === "open");
-    }
-
-    // If not, check lost-02 x found-02 (bags, 65%)
-    if (!target || !candidate) {
-      target = items.find((i) => i._id === "lost-02" && i.status === "open");
-      candidate = items.find((i) => i._id === "found-02" && i.status === "open");
-    }
-
-    // If all pairs are consumed, automatically reset the demo dataset
-    if (!target || !candidate) {
-      flashNotice({ kind: "none", text: "Restoring demo board to guarantee the 79% match..." });
+      flashNotice({ kind: "none", text: "Restoring demo board to guarantee the 79% clean match..." });
       try {
         const res = await fetch("/api/demo/reset", { method: "POST" });
         if (res.ok) {
@@ -283,6 +356,7 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
           setItems(freshData.items);
           setReunionCount(freshData.publishedReunions);
           target = freshData.items.find((i: Item) => i._id === "lost-01");
+          candidate = freshData.items.find((i: Item) => i._id === "found-01");
         }
       } catch {
         // ignore
@@ -291,16 +365,90 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
 
     if (!target) {
       flashNotice({ kind: "error", text: "Could not find a demo item. Please click Reset!" });
+      setDemoRunning(false);
       return;
     }
 
+    // Step 1: Select target and trigger spatial resonance
     setSelectedId(target._id);
-    flashNotice({ kind: "none", text: `Inspecting "${target.title}" on 100 Feet Road... calculating proximity.` });
+    flashNotice({ kind: "none", text: `Scanning: "${target.title}" · Detecting neighborhood resonance...` });
 
-    window.setTimeout(() => {
-      proposeFor(target);
-    }, 900);
-  }, [items, proposeFor, flashNotice]);
+    demoTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/matches/propose", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ itemId: target!._id }),
+        });
+        const data = await res.json();
+        if (data.decision?.top && data.matches?.[0]) {
+          beginFlow(target!, data.decision.top.item, data.matches[0]);
+
+          // Step 2: Show match dialog and explain Safe Harbor selection
+          demoTimerRef.current = setTimeout(async () => {
+            setDemoStep(2);
+
+            // Auto-confirm match at Indiranagar Metro after 2.8s
+            demoTimerRef.current = setTimeout(async () => {
+              const matchRecord = data.matches[0];
+              const confRes = await fetch(`/api/matches/${matchRecord._id}`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  decision: "confirmed",
+                  safeHarbor: "Indiranagar Metro (Gate 2 Customer Desk)",
+                  timeWindow: "⚡ Express (Within 2 hrs)",
+                }),
+              });
+              const confData = await confRes.json();
+              if (confData.match) {
+                setItems((cur) =>
+                  cur.map((i) =>
+                    i._id === target!._id || i._id === data.decision.top.item._id
+                      ? { ...i, status: "matched" as const }
+                      : i
+                  )
+                );
+                setReunionCount((c) => c + 1);
+                sounds.playReunionChime();
+                setMatchDialog(null);
+                setFlow(null);
+
+                // Step 3: Show Return Pass
+                const reunionData: ReturnPassData = confData.reunion || {
+                  _id: confData.match._id,
+                  title: `${target!.title} × ${data.decision.top.item.title}`,
+                  claimToken: "#LN-8492",
+                  safeHarbor: "Indiranagar Metro (Gate 2 Customer Desk)",
+                  verifiedChallengeProof: target!.secretChallenge || "Red 'R' tag",
+                  custodyState: "deposited",
+                };
+                setReturnPassData(reunionData);
+                setReturnPassOpen(true);
+                setDemoStep(3);
+
+                // Step 4: After 3.5s, launch Custody Desk Terminal
+                demoTimerRef.current = setTimeout(() => {
+                  setReturnPassOpen(false);
+                  setCustodyInitialToken(reunionData.claimToken);
+                  setCustodyAutoVerify(true);
+                  setCustodyDeskOpen(true);
+                  setDemoStep(4);
+
+                  // Step 5: After 4.5s in Custody Desk, complete tour
+                  demoTimerRef.current = setTimeout(() => {
+                    setDemoStep(5);
+                  }, 4500);
+                }, 3500);
+              }
+            }, 2800);
+          }, 2400);
+        }
+      } catch {
+        setDemoRunning(false);
+      }
+    }, 800);
+  }, [items, beginFlow, flashNotice]);
 
   const rejectMatch = useCallback(async () => {
     if (!matchDialog) return;
@@ -384,6 +532,151 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
         onToggleTheme={() => setMapTheme((t) => (t === "dark" ? "light" : "dark"))}
       />
 
+      {/* Bright Auto Demo Spotlight HUD */}
+      <AnimatePresence>
+        {demoRunning && (
+          <motion.div
+            initial={{ opacity: 0, y: -28, scale: 0.94 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -28, scale: 0.94 }}
+            transition={{ type: "spring", stiffness: 350, damping: 26 }}
+            className="fixed top-20 sm:top-24 left-1/2 -translate-x-1/2 z-[70] w-[94vw] max-w-xl overflow-hidden rounded-3xl border-2 border-amber-400 bg-gradient-to-b from-zinc-950/98 via-zinc-900/98 to-black/98 p-4 sm:p-5 shadow-[0_0_60px_rgba(251,191,36,0.4)] backdrop-blur-2xl text-zinc-100"
+          >
+            {/* Glowing top beacon */}
+            <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="relative flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500" />
+                </span>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-amber-300">
+                  Autonomous Demo Tour · Stage {demoStep} of 4
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {demoStep < 5 && (
+                  <button
+                    type="button"
+                    onClick={advanceDemoStep}
+                    className="flex items-center gap-1 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 px-2.5 py-1 text-xs font-semibold text-amber-200 transition cursor-pointer"
+                  >
+                    <span>Next</span>
+                    <SkipForward className="h-3 w-3" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={stopDemo}
+                  className="rounded-full p-1 text-zinc-400 hover:bg-white/10 hover:text-white transition cursor-pointer"
+                  title="Close Demo Tour"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* 4-Step Visual Progress Tracker */}
+            <div className="mt-3 grid grid-cols-4 gap-1.5">
+              {[1, 2, 3, 4].map((step) => {
+                const isPassed = demoStep > step;
+                const isCurrent = demoStep === step;
+                return (
+                  <div
+                    key={step}
+                    className={cn(
+                      "h-1.5 rounded-full transition-all duration-500",
+                      isPassed
+                        ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]"
+                        : isCurrent
+                        ? "bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.8)] animate-pulse"
+                        : "bg-white/10"
+                    )}
+                  />
+                );
+              })}
+            </div>
+
+            {/* Narrative Content by Stage */}
+            <div className="mt-3">
+              {demoStep === 1 && (
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-1.5">
+                    <span>🌟 Autonomous Gravitational Resonance (79%)</span>
+                  </h3>
+                  <p className="mt-1 text-xs text-zinc-300 leading-relaxed">
+                    “Black Honda key with red tag” automatically senses “Found car key” 153m away on 100 Feet Road.
+                    Notice the physics pulling the reports together into midpoint collision on the map.
+                  </p>
+                </div>
+              )}
+
+              {demoStep === 2 && (
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-1.5">
+                    <span>🏛️ Safe Harbor Selection (Civic Protocol)</span>
+                  </h3>
+                  <p className="mt-1 text-xs text-zinc-300 leading-relaxed">
+                    Connecting to <strong>Indiranagar Metro (Gate 2 Customer Desk)</strong>. Station officers have existing statutory lost-property duties — LostNet provides the scan-based digital ledger API.
+                  </p>
+                </div>
+              )}
+
+              {demoStep === 3 && (
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-1.5">
+                    <span>🎟️ Digital Return Pass Issued</span>
+                  </h3>
+                  <p className="mt-1 text-xs text-zinc-300 leading-relaxed">
+                    Airline-style boarding pass generated with scannable QR and encrypted token <strong className="text-emerald-300 font-mono">#LN-8492</strong>. Zero phone numbers or home addresses are ever exposed.
+                  </p>
+                </div>
+              )}
+
+              {demoStep === 4 && (
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-1.5">
+                    <span>🏢 Custody Terminal &amp; Split-Knowledge Release</span>
+                  </h3>
+                  <p className="mt-1 text-xs text-zinc-300 leading-relaxed">
+                    Attendant quizzes the verbal challenge (<em className="text-amber-200">“Red &apos;R&apos; tag”</em>). The terminal cryptographically verifies and completes the sign-off certificate directly into Sanity.
+                  </p>
+                </div>
+              )}
+
+              {demoStep === 5 && (
+                <div>
+                  <div className="flex items-center gap-2 text-emerald-400">
+                    <CheckCircle2 className="h-5 w-5" />
+                    <h3 className="text-sm sm:text-base font-bold text-white">
+                      Civic Handover Completed Successfully!
+                    </h3>
+                  </div>
+                  <p className="mt-1 text-xs text-zinc-300 leading-relaxed">
+                    From lost on 100 Feet Road to verified return at Metro Gate 2 in under 60 seconds with zero liability and zero privacy leaks.
+                  </p>
+                  <div className="mt-3 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={runTour}
+                      className="rounded-xl bg-white/10 hover:bg-white/20 px-3 py-1.5 text-xs font-semibold text-zinc-200 transition cursor-pointer"
+                    >
+                      Replay Demo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={stopDemo}
+                      className="rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-4 py-1.5 text-xs font-bold text-zinc-950 shadow-md hover:brightness-110 transition cursor-pointer"
+                    >
+                      Explore The Board →
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Top Bar Controls */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-[5] flex flex-col items-center gap-2.5 p-2.5 sm:p-4 max-w-7xl mx-auto w-full">
         {/* Header row */}
@@ -414,23 +707,29 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
           </div>
 
           {/* Quick Search Bar */}
-          <div className="pointer-events-auto hidden xl:flex items-center relative flex-1 max-w-xs mx-2">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
+          <div className="pointer-events-auto flex items-center relative min-w-[130px] sm:min-w-[170px] md:min-w-[210px] lg:min-w-[240px] max-w-xs shrink-0 mx-1 sm:mx-2">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 sm:h-4 sm:w-4 text-zinc-400 pointer-events-none" />
             <input
+              ref={searchInputRef}
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search reports or places..."
-              className="w-full ln-glass rounded-2xl pl-10 pr-8 py-2.5 text-sm text-white placeholder-zinc-400 border border-white/10 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 shadow-xl transition"
+              placeholder="Search reports..."
+              className="w-full ln-glass rounded-2xl pl-8 sm:pl-9 pr-7 sm:pr-8 py-2 text-xs sm:text-sm text-white placeholder-zinc-400 border border-white/10 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 shadow-xl transition"
             />
-            {searchQuery && (
+            {searchQuery ? (
               <button
                 type="button"
                 onClick={() => setSearchQuery("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white transition p-0.5"
+                title="Clear search"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
+            ) : (
+              <span className="hidden md:inline absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-zinc-500 font-mono pointer-events-none bg-white/5 border border-white/10 rounded px-1 py-0.2">
+                /
+              </span>
             )}
           </div>
 
@@ -445,20 +744,24 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
             <button
               type="button"
               onClick={runTour}
-              className="ln-glass flex min-h-[42px] items-center gap-1.5 sm:gap-2 rounded-2xl px-3 sm:px-3.5 py-2 text-xs sm:text-sm text-amber-300 hover:text-amber-200 border border-amber-500/30 hover:border-amber-400/50 shadow-lg shadow-amber-950/30 transition select-none font-semibold cursor-pointer"
+              className="ln-glass flex min-h-[42px] items-center gap-1.5 sm:gap-2 rounded-2xl px-3 sm:px-3.5 py-2 text-xs sm:text-sm bg-gradient-to-r from-amber-500/25 via-amber-500/15 to-orange-500/20 text-amber-300 hover:text-amber-200 border border-amber-500/40 hover:border-amber-400/70 shadow-lg shadow-amber-950/40 hover:shadow-amber-500/20 transition select-none font-bold cursor-pointer"
               title="Run 1-click guided demo tour"
             >
-              <Sparkles className="h-4 w-4 text-amber-300 shrink-0" />
-              <span>Auto Demo</span>
+              <Sparkles className="h-4 w-4 text-amber-300 shrink-0 animate-pulse" />
+              <span className="whitespace-nowrap">Auto Demo</span>
             </button>
             <button
               type="button"
-              onClick={() => setCustodyDeskOpen(true)}
+              onClick={() => {
+                setCustodyInitialToken(undefined);
+                setCustodyAutoVerify(false);
+                setCustodyDeskOpen(true);
+              }}
               className="ln-glass flex min-h-[42px] items-center gap-1.5 sm:gap-2 rounded-2xl px-2.5 sm:px-3 py-2 text-xs sm:text-sm text-emerald-300 hover:text-emerald-200 border border-emerald-500/30 hover:border-emerald-400/50 shadow-lg shadow-emerald-950/30 transition select-none font-semibold cursor-pointer"
               title="Open Safe Harbor Custody Desk (Metro / Partner Terminal)"
             >
               <Building2 className="h-4 w-4 text-emerald-400 shrink-0" />
-              <span className="hidden lg:inline">Custody Desk</span>
+              <span className="hidden sm:inline whitespace-nowrap">Custody Desk</span>
             </button>
             <button
               type="button"
@@ -829,13 +1132,30 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
         )}
       </AnimatePresence>
 
+      {/* Return Pass Modal (Airline Boarding Pass UX) */}
+      <ReturnPassModal
+        open={returnPassOpen}
+        onClose={() => setReturnPassOpen(false)}
+        data={returnPassData}
+        onOpenCustodyDesk={(token) => {
+          setCustodyInitialToken(token);
+          setCustodyAutoVerify(demoRunning);
+          setCustodyDeskOpen(true);
+        }}
+      />
+
       {/* Manifesto / Philosophy Modal */}
       <ManifestoModal open={manifestoOpen} onClose={() => setManifestoOpen(false)} />
 
       {/* Safe Harbor Custody Desk Modal */}
       <CustodyDeskModal
         open={custodyDeskOpen}
-        onClose={() => setCustodyDeskOpen(false)}
+        onClose={() => {
+          setCustodyDeskOpen(false);
+          setCustodyAutoVerify(false);
+        }}
+        initialToken={custodyInitialToken}
+        autoVerifyDemo={custodyAutoVerify}
         onReunionUpdated={refresh}
       />
     </div>
