@@ -11,6 +11,7 @@ import type {
   Settings,
 } from "../types";
 import { DEFAULT_SETTINGS } from "../types";
+import { CATEGORIES } from "../categories";
 import { scoreCandidates } from "../matcher";
 import { buildReunionContent, pairKey } from "../reunion";
 import { hashAnswer, newClaimToken, newSalt, stripItemSecrets, stripReunionSecrets, verifyAnswer } from "../secret";
@@ -127,7 +128,7 @@ function mapItem(doc: SanityItemDoc): Item {
     kind: doc.kind,
     title: doc.title,
     description: doc.description,
-    categoryId: doc.categoryId ?? "other",
+    categoryId: (doc.categoryId ?? "other").replace(/^category-/, ""),
     placeLabel: doc.placeLabel,
     location: doc.location ?? { lat: 0, lng: 0 },
     occurredAt: doc.occurredAt,
@@ -169,7 +170,7 @@ function mapItemRaw(doc: SanityItemDoc): Item {
     kind: doc.kind,
     title: doc.title,
     description: doc.description,
-    categoryId: doc.categoryId ?? "other",
+    categoryId: (doc.categoryId ?? "other").replace(/^category-/, ""),
     placeLabel: doc.placeLabel,
     location: doc.location ?? { lat: 0, lng: 0 },
     occurredAt: doc.occurredAt,
@@ -257,12 +258,16 @@ export class SanityProvider implements LostNetData {
           })()
         : {};
 
+    const rawCat = input.categoryId?.replace(/^category-/, "") || "other";
+    const validCat = CATEGORIES.some((c) => c.id === rawCat) ? rawCat : "other";
+    const categoryRef = `category-${validCat}`;
+
     const doc = await this.client.create({
       _type: "lostFoundItem",
       kind: input.kind,
       title: input.title.trim(),
       description: input.description.trim(),
-      category: { _type: "reference", _ref: input.categoryId },
+      category: { _type: "reference", _ref: categoryRef },
       placeLabel: input.placeLabel.trim(),
       location: { _type: "geopoint", lat: input.lat, lng: input.lng },
       occurredAt: new Date(input.occurredAt).toISOString(),

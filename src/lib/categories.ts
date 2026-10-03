@@ -26,7 +26,8 @@ export const CATEGORIES: Category[] = [
 ];
 
 export function getCategory(id: string): Category {
-  return CATEGORIES.find((c) => c.id === id) ?? CATEGORIES[CATEGORIES.length - 1];
+  const cleanId = id.replace(/^category-/, "");
+  return CATEGORIES.find((c) => c.id === cleanId) ?? CATEGORIES[CATEGORIES.length - 1];
 }
 
 /** Does this free text mention a category alias not covered by the chosen category id? */

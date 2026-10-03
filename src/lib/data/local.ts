@@ -92,7 +92,7 @@ class LocalProvider implements LostNetData {
       kind: input.kind,
       title: input.title.trim(),
       description: input.description.trim(),
-      categoryId: input.categoryId,
+      categoryId: input.categoryId.replace(/^category-/, ""),
       placeLabel: input.placeLabel.trim(),
       location: { lat: input.lat, lng: input.lng },
       occurredAt: new Date(input.occurredAt).toISOString(),
