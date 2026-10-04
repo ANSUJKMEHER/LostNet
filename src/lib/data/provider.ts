@@ -1,4 +1,5 @@
 import type {
+  ChatMessage,
   HandoverPlan,
   Item,
   ItemStatus,
@@ -65,5 +66,8 @@ export interface LostNetData {
     reunionId: string,
     answer: string,
   ): Promise<{ verified: boolean; attempts: number; locked: boolean; hasChallenge: boolean }>;
+  addChatMessage?(reunionId: string, message: { sender: "finder" | "owner"; text: string }): Promise<ChatMessage[]>;
+  getChatMessages?(reunionId: string): Promise<ChatMessage[]>;
+  confirmProof?(reunionId: string): Promise<Reunion>;
   resetDemoData?(): Promise<void>;
 }

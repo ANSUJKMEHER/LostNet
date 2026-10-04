@@ -28,6 +28,7 @@ import CategoryFilter from "@/components/category-filter";
 import ManifestoModal from "@/components/manifesto-modal";
 import CustodyDeskModal from "@/components/custody-desk-modal";
 import ReturnPassModal from "@/components/return-pass-modal";
+import HandoverChatModal from "@/components/handover-chat-modal";
 import type { GeoPoint, HandoverPlan, Item, MatchRecord, NewItemInput, Reunion } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useLiveUpdates } from "@/hooks/use-live-updates";
@@ -61,6 +62,7 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
   const [custodyInitialToken, setCustodyInitialToken] = useState<string | undefined>(undefined);
   const [returnPassOpen, setReturnPassOpen] = useState(false);
   const [returnPassData, setReturnPassData] = useState<Reunion | null>(null);
+  const [chatModalReunion, setChatModalReunion] = useState<Reunion | null>(null);
   const [demoRunning, setDemoRunning] = useState(false);
   const [demoStep, setDemoStep] = useState<1 | 2 | 3 | 4 | 5>(1);
   const timerRef = useRef<number | null>(null);
@@ -244,11 +246,11 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
         setPickedHandoverPoint(null);
         setHandoverPickActive(false);
 
-        // Only show the Return Pass when the server actually issued one.
+        // Open the Handover Chat immediately so finder and owner can talk
         const issued: Reunion | null = data.reunion ?? null;
         if (issued) {
           setReturnPassData(issued);
-          setReturnPassOpen(true);
+          setChatModalReunion(issued);
         }
 
         const place = issued?.handover?.label ?? "the finder";
@@ -1025,6 +1027,15 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
           setCustodyInitialToken(token);
           setCustodyDeskOpen(true);
         }}
+        onOpenChat={(r) => setChatModalReunion(r)}
+      />
+
+      {/* Handover Direct Chat Modal */}
+      <HandoverChatModal
+        open={Boolean(chatModalReunion)}
+        onClose={() => setChatModalReunion(null)}
+        reunion={chatModalReunion}
+        onReunionUpdated={refresh}
       />
 
       {/* Manifesto / Philosophy Modal */}
@@ -1038,6 +1049,7 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
         }}
         initialToken={custodyInitialToken}
         onReunionUpdated={refresh}
+        onOpenChat={(r) => setChatModalReunion(r)}
       />
     </div>
   );

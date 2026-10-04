@@ -1,5 +1,6 @@
 import { createClient, type SanityClient } from "@sanity/client";
 import type {
+  ChatMessage,
   HandoverPlan,
   Item,
   ItemStatus,
@@ -70,7 +71,7 @@ const MATCH_PROJECTION = `{
 
 const REUNION_PROJECTION = `{
   _id, "matchId": match._ref, title, story, status, _createdAt, publishedAt,
-  safeHarbor, handover, claimToken, custodyState, challengeQuestion, claimAttempts, verifiedAt
+  safeHarbor, handover, claimToken, custodyState, challengeQuestion, claimAttempts, verifiedAt, messages
 }`;
 
 type SanityMatchDoc = {
@@ -102,6 +103,7 @@ type SanityReunionDoc = {
   challengeQuestion?: string;
   claimAttempts?: number;
   verifiedAt?: string;
+  messages?: ChatMessage[];
 };
 
 function mapMatch(d: SanityMatchDoc): MatchRecord {
@@ -160,6 +162,7 @@ function mapReunion(d: SanityReunionDoc): Reunion {
     challengeQuestion: d.challengeQuestion,
     claimAttempts: d.claimAttempts ?? 0,
     verifiedAt: d.verifiedAt,
+    messages: d.messages ?? [],
   };
 }
 
@@ -520,12 +523,42 @@ export class SanityProvider implements LostNetData {
 
     const ok = verifyAnswer(answer, challenged.secretSalt, challenged.secretAnswerHash);
     if (ok) {
-      await this.client.patch(reunionId).set({ verifiedAt: new Date().toISOString() }).commit();
+      await this.client.patch(reunionId).set({ verifiedAt: new Date().toISOString(), custodyState: "verified" }).commit();
       return { verified: true, attempts, locked: false, hasChallenge: true };
     }
     const next = attempts + 1;
     await this.client.patch(reunionId).set({ claimAttempts: next }).commit();
     return { verified: false, attempts: next, locked: next >= 2, hasChallenge: true };
+  }
+
+  async addChatMessage(reunionId: string, message: { sender: "finder" | "owner"; text: string }): Promise<ChatMessage[]> {
+    const newMsg: ChatMessage = {
+      id: `msg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+      sender: message.sender,
+      text: message.text.trim(),
+      timestamp: new Date().toISOString(),
+    };
+    await this.client
+      .patch(reunionId)
+      .setIfMissing({ messages: [] })
+      .append("messages", [newMsg])
+      .commit();
+    return this.getChatMessages(reunionId);
+  }
+
+  async getChatMessages(reunionId: string): Promise<ChatMessage[]> {
+    const doc = await this.client.fetch<{ messages?: ChatMessage[] } | null>(
+      `*[_type == "reunion" && _id == $id][0]{messages}`,
+      { id: reunionId },
+    );
+    return doc?.messages ?? [];
+  }
+
+  async confirmProof(reunionId: string): Promise<Reunion> {
+    await this.client.patch(reunionId).set({ verifiedAt: new Date().toISOString(), custodyState: "verified", claimAttempts: 0 }).commit();
+    const r = await this.getReunion(reunionId);
+    if (!r) throw new Error(`Reunion ${reunionId} not found`);
+    return r;
   }
 }
 

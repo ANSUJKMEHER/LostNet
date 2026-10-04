@@ -119,6 +119,13 @@ export interface HandoverPlan {
   time?: string;
 }
 
+export interface ChatMessage {
+  id: string;
+  sender: "finder" | "owner";
+  text: string;
+  timestamp: string;
+}
+
 export interface Reunion {
   _id: string;
   matchId: string;
@@ -141,6 +148,8 @@ export interface Reunion {
   claimAttempts?: number;
   /** Set when the desk verifies the challenge. */
   verifiedAt?: string;
+  /** Chat messages exchanged between finder and claimant to coordinate handover. */
+  messages?: ChatMessage[];
 }
 
 export interface Settings {

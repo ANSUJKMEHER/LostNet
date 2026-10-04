@@ -13,11 +13,13 @@ import {
   X,
   Clock,
   ArrowRight,
+  MessageSquare,
 } from "lucide-react";
 import QRCode from "react-qr-code";
 import type { Reunion, Item } from "@/lib/types";
 import { CategoryChip } from "@/components/board-map";
 import { HANDOVER_MODE_LABELS } from "@/lib/handover";
+import HandoverChatModal from "@/components/handover-chat-modal";
 import { timeAgo, cn } from "@/lib/utils";
 
 interface ReunionCardProps {
@@ -32,6 +34,7 @@ export default function ReunionCard({ reunion, a, b }: ReunionCardProps) {
   const [displayedStory, setDisplayedStory] = useState(reunion.story || "");
   const [isSaving, setIsSaving] = useState(false);
   const [showPass, setShowPass] = useState(false);
+  const [showChat, setShowChat] = useState(false);
   const [origin, setOrigin] = useState("");
 
   useEffect(() => {
@@ -301,17 +304,35 @@ export default function ReunionCard({ reunion, a, b }: ReunionCardProps) {
             </span>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setShowPass(true)}
-            className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500/20 to-teal-500/20 hover:from-emerald-500/30 hover:to-teal-500/30 border border-emerald-500/40 px-3.5 py-2 text-xs sm:text-sm font-semibold text-emerald-300 transition shadow-lg shadow-emerald-950/30 active:scale-95"
-          >
-            <Ticket className="h-4 w-4" />
-            <span>View Digital Return Pass</span>
-            <ArrowRight className="h-3.5 w-3.5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowChat(true)}
+              className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500/20 to-purple-500/20 hover:from-indigo-500/30 hover:to-purple-500/30 border border-indigo-500/40 px-3.5 py-2 text-xs sm:text-sm font-semibold text-indigo-300 transition shadow-lg shadow-indigo-950/30 active:scale-95 cursor-pointer"
+            >
+              <MessageSquare className="h-4 w-4" />
+              <span>Handover Chat</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowPass(true)}
+              className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500/20 to-teal-500/20 hover:from-emerald-500/30 hover:to-teal-500/30 border border-emerald-500/40 px-3.5 py-2 text-xs sm:text-sm font-semibold text-emerald-300 transition shadow-lg shadow-emerald-950/30 active:scale-95 cursor-pointer"
+            >
+              <Ticket className="h-4 w-4" />
+              <span>Return Pass</span>
+              <ArrowRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
       </article>
+
+      {/* Handover Direct Chat Modal */}
+      <HandoverChatModal
+        open={showChat}
+        onClose={() => setShowChat(false)}
+        reunion={reunion}
+      />
 
       {/* Digital Return Pass Modal (Boarding Pass UX) */}
       <AnimatePresence>

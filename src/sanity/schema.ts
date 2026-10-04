@@ -185,6 +185,22 @@ export const reunion = defineType({
     }),
     defineField({ name: "verifiedAt", type: "datetime", title: "Challenge verified at", readOnly: true }),
     defineField({
+      name: "messages",
+      title: "Handover Chat Messages",
+      type: "array",
+      of: [
+        {
+          type: "object",
+          fields: [
+            { name: "id", type: "string" },
+            { name: "sender", type: "string" },
+            { name: "text", type: "string" },
+            { name: "timestamp", type: "string" },
+          ],
+        },
+      ],
+    }),
+    defineField({
       name: "status",
       type: "string",
       initialValue: "draft",

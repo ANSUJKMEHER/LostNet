@@ -1,4 +1,5 @@
 import type {
+  ChatMessage,
   HandoverPlan,
   Item,
   ItemStatus,
@@ -39,6 +40,7 @@ class LocalProvider implements LostNetData {
   private items = new Map<string, Item>();
   private matches = new Map<string, MatchRecord>();
   private reunions = new Map<string, Reunion>();
+  private reunionMessages = new Map<string, ChatMessage[]>();
   private seq = 1;
 
   constructor() {
@@ -303,6 +305,33 @@ class LocalProvider implements LostNetData {
     const r = this.reunions.get(id);
     if (!r) throw new Error(`Reunion ${id} not found`);
     r.custodyState = custodyState;
+    return r;
+  }
+
+  async addChatMessage(reunionId: string, message: { sender: "finder" | "owner"; text: string }): Promise<ChatMessage[]> {
+    const list = this.reunionMessages.get(reunionId) ?? [];
+    const newMsg: ChatMessage = {
+      id: `msg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+      sender: message.sender,
+      text: message.text.trim(),
+      timestamp: new Date().toISOString(),
+    };
+    list.push(newMsg);
+    this.reunionMessages.set(reunionId, list);
+    const r = this.reunions.get(reunionId);
+    if (r) r.messages = list;
+    return list;
+  }
+
+  async getChatMessages(reunionId: string): Promise<ChatMessage[]> {
+    return this.reunionMessages.get(reunionId) ?? [];
+  }
+
+  async confirmProof(reunionId: string): Promise<Reunion> {
+    const r = this.reunions.get(reunionId);
+    if (!r) throw new Error(`Reunion ${reunionId} not found`);
+    r.verifiedAt = new Date().toISOString();
+    r.custodyState = "verified";
     return r;
   }
 

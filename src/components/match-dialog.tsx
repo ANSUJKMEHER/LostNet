@@ -15,6 +15,7 @@ import {
   Clock,
   MapPin,
   Lock,
+  MessageSquare,
 } from "lucide-react";
 import type { GeoPoint, HandoverMode, HandoverPlan, Item, MatchDimension, MatchRecord } from "@/lib/types";
 import { CategoryChip } from "@/components/board-map";
@@ -135,18 +136,11 @@ export default function MatchDialog({
   const hasChallenge = Boolean(a?.secretChallenge || b?.secretChallenge);
 
   const buildPlan = (): HandoverPlan => {
-    if (mode === "public" && selectedPlace) {
-      return { mode, label: selectedPlace.label, point: selectedPlace.location, time };
-    }
-    if (mode === "map") {
-      return {
-        mode,
-        label: mapLabel.trim() || (pickedPoint ? "Point chosen on the map" : undefined),
-        point: pickedPoint ?? null,
-        time,
-      };
-    }
-    return { mode: "finder", time };
+    return {
+      mode: "finder",
+      label: mapLabel.trim() || "Agreed in chat",
+      time: "Agreed in chat",
+    };
   };
 
   const handleNarrate = async () => {
@@ -317,152 +311,47 @@ export default function MatchDialog({
               )}
             </div>
 
-            {/* Handover plan */}
-            <div className="mt-5 rounded-2xl border border-indigo-500/25 bg-gradient-to-b from-indigo-950/40 via-zinc-900/60 to-zinc-950/80 p-4 shadow-xl">
-              <div className="flex items-center gap-2">
-                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-500/20 text-indigo-300 ring-1 ring-indigo-400/30">
-                  <MapPin className="h-4 w-4" />
+            {/* Handover via Direct Chat */}
+            <div className="mt-5 rounded-2xl border border-indigo-500/30 bg-gradient-to-b from-indigo-950/40 via-zinc-900/70 to-zinc-950/90 p-4 shadow-xl">
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-300 ring-1 ring-indigo-400/40">
+                  <MessageSquare className="h-4 w-4" />
                 </span>
                 <div>
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-200">How will it get back?</h4>
-                  <p className="text-[11px] text-zinc-400">No phone numbers or home addresses are exchanged.</p>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-200">
+                    Handover via Direct Chat
+                  </h4>
+                  <p className="text-[11px] text-zinc-400">
+                    Finder and owner connect directly to arrange where and when to meet.
+                  </p>
                 </div>
               </div>
 
-              {/* Mode */}
-              <div className="mt-3.5 grid gap-2">
-                {MODES.map((m) => {
-                  const isSelected = mode === m.id;
-                  return (
-                    <button
-                      key={m.id}
-                      type="button"
-                      onClick={() => setMode(m.id)}
-                      className={cn(
-                        "flex items-start gap-2.5 rounded-xl border p-2.5 text-left transition-all cursor-pointer",
-                        isSelected
-                          ? "border-indigo-400/80 bg-indigo-500/15 shadow-md shadow-indigo-950/50"
-                          : "border-white/5 bg-white/[0.02] hover:border-white/15 hover:bg-white/[0.05]",
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg",
-                          isSelected ? "bg-indigo-500 text-white" : "bg-white/10 text-zinc-400",
-                        )}
-                      >
-                        {m.id === "finder" ? <Lock className="h-4 w-4" /> : <MapPin className="h-4 w-4" />}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-1">
-                          <span className={cn("text-xs font-semibold", isSelected ? "text-zinc-100" : "text-zinc-300")}>
-                            {m.title}
-                          </span>
-                          {isSelected && <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-indigo-400" />}
-                        </div>
-                        <p className="mt-0.5 text-[11px] text-zinc-400 leading-snug">{m.blurb}</p>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Public places, nearest first */}
-              {mode === "public" && (
-                <div className="mt-3 space-y-2">
-                  {suggested.map((p) => {
-                    const isSelected = selectedPlaceId === p.id;
-                    return (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onClick={() => setSelectedPlaceId(p.id)}
-                        className={cn(
-                          "flex w-full items-start gap-2.5 rounded-xl border p-2.5 text-left transition-all cursor-pointer",
-                          isSelected
-                            ? "border-emerald-400/70 bg-emerald-500/10"
-                            : "border-white/5 bg-white/[0.02] hover:border-white/15",
-                        )}
-                      >
-                        <span
-                          className={cn(
-                            "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg",
-                            isSelected ? "bg-emerald-500 text-zinc-950" : "bg-white/10 text-zinc-400",
-                          )}
-                        >
-                          {placeIcon(p.kind)}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <span className={cn("text-xs font-semibold", isSelected ? "text-zinc-100" : "text-zinc-300")}>
-                            {p.label}
-                          </span>
-                          <p className="mt-0.5 text-[11px] text-zinc-400 leading-snug">{p.detail}</p>
-                        </div>
-                      </button>
-                    );
-                  })}
+              <div className="mt-3.5 space-y-2 rounded-xl bg-black/40 border border-white/5 p-3 text-xs">
+                <div className="flex items-center gap-2 text-zinc-300">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                  <span>A private, token-locked chat thread will open instantly</span>
                 </div>
-              )}
-
-              {/* Map point */}
-              {mode === "map" && (
-                <div className="mt-3 space-y-2">
-                  <input
-                    value={mapLabel}
-                    onChange={(e) => setMapLabel(e.target.value)}
-                    placeholder="Name the spot (e.g. Corner shop, 5th Main)"
-                    className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:border-indigo-400/50"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => onRequestMapPick?.()}
-                    className={cn(
-                      "flex w-full items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-semibold transition",
-                      pickedPoint
-                        ? "border-emerald-400/50 bg-emerald-500/10 text-emerald-300"
-                        : "border-dashed border-white/20 text-zinc-300 hover:border-white/40",
-                    )}
-                  >
-                    <MapPin className="h-4 w-4" />
-                    {pickedPoint
-                      ? `Point set (${pickedPoint.lat.toFixed(4)}, ${pickedPoint.lng.toFixed(4)}) — tap to move`
-                      : "Drop the point on the map"}
-                  </button>
+                <div className="flex items-center gap-2 text-zinc-300">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                  <span>Confirm identifying details and discuss a safe meeting spot</span>
                 </div>
-              )}
-
-              {/* Time */}
-              <div className="mt-3.5">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Roughly when</p>
-                <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-                  {HANDOVER_TIME_OPTIONS.map((t) => {
-                    const isSelected = time === t;
-                    return (
-                      <button
-                        key={t}
-                        type="button"
-                        onClick={() => setTime(t)}
-                        className={cn(
-                          "flex items-center justify-center gap-1.5 rounded-xl border px-2 py-2 text-[11px] font-medium transition-all",
-                          isSelected
-                            ? "border-amber-400/80 bg-amber-500/15 text-amber-200"
-                            : "border-white/5 bg-white/[0.02] text-zinc-400 hover:border-white/15",
-                        )}
-                      >
-                        <Clock className={cn("h-3.5 w-3.5", isSelected ? "text-amber-400" : "text-zinc-500")} />
-                        {t}
-                      </button>
-                    );
-                  })}
+                <div className="flex items-center gap-2 text-zinc-300">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                  <span>No phone numbers or home addresses are shared</span>
                 </div>
               </div>
 
-              <div className="mt-3 rounded-lg border border-white/5 bg-black/30 p-2.5 flex items-center gap-2 text-[11px] text-zinc-400">
-                <Lock className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
-                <span>
-                  You&apos;ll get a one-time claim token (like <strong className="text-zinc-200">#LN-8492</strong>). Only
-                  someone holding it can look up this handover.
-                </span>
+              <div className="mt-3">
+                <label className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                  Preferred meeting area (optional)
+                </label>
+                <input
+                  value={mapLabel}
+                  onChange={(e) => setMapLabel(e.target.value)}
+                  placeholder="e.g. Near 100 Feet Road, Indiranagar or decide in chat"
+                  className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-indigo-400/50"
+                />
               </div>
             </div>
 
@@ -473,17 +362,18 @@ export default function MatchDialog({
                 disabled={busy}
                 onClick={() => onConfirm(buildPlan())}
                 className={cn(
-                  "flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold text-zinc-950 transition flex items-center justify-center gap-2",
-                  "bg-gradient-to-r from-rose-400 to-orange-300 shadow-lg shadow-rose-950/40 hover:brightness-110 disabled:opacity-50",
+                  "flex-1 rounded-xl px-4 py-2.5 text-sm font-bold text-zinc-950 transition flex items-center justify-center gap-2 cursor-pointer",
+                  "bg-gradient-to-r from-emerald-400 to-teal-300 shadow-lg shadow-emerald-950/40 hover:brightness-110 disabled:opacity-50",
                 )}
               >
-                {busy ? "Confirming…" : "Yes — reunite them"}
+                <MessageSquare className="h-4 w-4" />
+                {busy ? "Confirming…" : "Yes — Confirm & Open Chat"}
               </button>
               <button
                 type="button"
                 disabled={busy}
                 onClick={onReject}
-                className="flex items-center gap-1.5 rounded-xl border border-white/10 px-4 py-2.5 text-sm font-medium text-zinc-400 transition hover:bg-white/5 disabled:opacity-50"
+                className="flex items-center gap-1.5 rounded-xl border border-white/10 px-4 py-2.5 text-sm font-medium text-zinc-400 transition hover:bg-white/5 disabled:opacity-50 cursor-pointer"
               >
                 <ThumbsDown className="h-4 w-4" />
                 Not the same

@@ -1,7 +1,7 @@
 "use client";
 
 import { motion, AnimatePresence } from "motion/react";
-import { X, Ticket, MapPin, ShieldCheck, ArrowRight, CheckCircle2, Copy, Clock } from "lucide-react";
+import { X, Ticket, MapPin, ShieldCheck, ArrowRight, CheckCircle2, Copy, Clock, MessageSquare } from "lucide-react";
 import { useEffect, useState } from "react";
 import QRCode from "react-qr-code";
 import type { Reunion } from "@/lib/types";
@@ -12,9 +12,10 @@ interface ReturnPassModalProps {
   onClose: () => void;
   data: Reunion | null;
   onOpenCustodyDesk?: (token: string) => void;
+  onOpenChat?: (reunion: Reunion) => void;
 }
 
-export default function ReturnPassModal({ open, onClose, data, onOpenCustodyDesk }: ReturnPassModalProps) {
+export default function ReturnPassModal({ open, onClose, data, onOpenCustodyDesk, onOpenChat }: ReturnPassModalProps) {
   const [copied, setCopied] = useState(false);
   const [origin, setOrigin] = useState("");
 
@@ -178,21 +179,35 @@ export default function ReturnPassModal({ open, onClose, data, onOpenCustodyDesk
                 </div>
               </div>
 
-              {onOpenCustodyDesk && token && (
-                <div className="pt-2">
+              <div className="pt-2 space-y-2">
+                {onOpenChat && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onOpenChat(data);
+                    }}
+                    className="w-full flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 py-3 text-xs sm:text-sm font-bold uppercase tracking-wider text-white shadow-lg shadow-indigo-950/50 hover:brightness-110 active:scale-95 transition cursor-pointer"
+                  >
+                    <MessageSquare className="h-4 w-4" />
+                    <span>Open Handover Chat</span>
+                    <ArrowRight className="h-4 w-4" />
+                  </button>
+                )}
+
+                {onOpenCustodyDesk && token && (
                   <button
                     type="button"
                     onClick={() => {
                       onClose();
                       onOpenCustodyDesk(token);
                     }}
-                    className="w-full flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 py-3 text-xs sm:text-sm font-bold uppercase tracking-wider text-zinc-950 shadow-lg shadow-emerald-950/50 hover:brightness-110 active:scale-95 transition cursor-pointer"
+                    className="w-full flex items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/5 py-2.5 text-xs font-semibold text-zinc-300 hover:bg-white/10 hover:text-white transition cursor-pointer"
                   >
-                    <span>Open the custody desk</span>
-                    <ArrowRight className="h-4 w-4" />
+                    <span>Open custody desk (alternative)</span>
                   </button>
-                </div>
-              )}
+                )}
+              </div>
 
               <div className="text-center pt-1 flex items-center justify-center gap-1.5 text-[10px] text-zinc-500">
                 <Clock className="h-3 w-3" />
