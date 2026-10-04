@@ -2,7 +2,7 @@
 
 import { useState, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { X, MapPin, UploadCloud, LocateFixed, ShieldQuestion } from "lucide-react";
+import { X, MapPin, UploadCloud, LocateFixed, Package } from "lucide-react";
 import { CATEGORIES } from "@/lib/categories";
 import type { NewItemInput } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -65,8 +65,7 @@ export default function ReportDialog({
   const [colors, setColors] = useState<string[]>([]);
   const [materials, setMaterials] = useState<string[]>([]);
   const [imageUrl, setImageUrl] = useState("");
-  const [secretChallenge, setSecretChallenge] = useState("");
-  const [secretAnswer, setSecretAnswer] = useState("");
+  const [handoverAction, setHandoverAction] = useState<"dropped" | "holding" | "left" | "">("")
   const [handoverNote, setHandoverNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [locating, setLocating] = useState(false);
@@ -105,9 +104,8 @@ export default function ReportDialog({
     setColors([]);
     setMaterials([]);
     setImageUrl("");
-    setSecretChallenge("");
-    setSecretAnswer("");
     setHandoverNote("");
+    setHandoverAction("");
     setError(null);
     setGeoError(null);
   };
@@ -142,12 +140,8 @@ export default function ReportDialog({
       setError("A title, a description, a location and a time are required.");
       return;
     }
-    if (secretChallenge.trim() && !secretAnswer.trim()) {
-      setError("You wrote an ownership question but no answer. Add the answer, or clear the question.");
-      return;
-    }
-    if (secretAnswer.trim() && !secretChallenge.trim()) {
-      setError("You wrote an answer but no question. Add the question the claimant will be asked.");
+    if (kind === "found" && !handoverAction) {
+      setError("Please tell us what you did with the item.");
       return;
     }
     await onSubmit({
@@ -162,8 +156,6 @@ export default function ReportDialog({
       colors,
       materials,
       imageUrl: imageUrl.trim() || undefined,
-      secretChallenge: secretChallenge.trim() || undefined,
-      secretAnswer: secretAnswer.trim() || undefined,
       handoverNote: handoverNote.trim() || undefined,
     });
     reset();
@@ -407,44 +399,51 @@ export default function ReportDialog({
                 )}
               </div>
 
-              {/* Ownership challenge */}
-              <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.06] p-3">
-                <label className="flex items-center gap-1.5 text-xs font-semibold text-amber-200">
-                  <ShieldQuestion className="h-3.5 w-3.5" />
-                  Ownership challenge (optional, but recommended)
-                </label>
-                <p className="mt-1 text-[11px] leading-snug text-zinc-400">
-                  Write a question only the real owner could answer. The answer is hashed on the server and never shown
-                  anywhere — the claimant has to say it out loud.
-                </p>
-                <input
-                  type="text"
-                  value={secretChallenge}
-                  onChange={(e) => setSecretChallenge(e.target.value)}
-                  placeholder="Question — e.g. What is engraved on the keyring?"
-                  className="mt-2 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-amber-400/60 focus:outline-none"
-                />
-                <input
-                  type="text"
-                  value={secretAnswer}
-                  onChange={(e) => setSecretAnswer(e.target.value)}
-                  disabled={!secretChallenge.trim()}
-                  placeholder={secretChallenge.trim() ? "The answer — e.g. the letter R" : "Write the question first"}
-                  className="mt-2 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-amber-400/60 focus:outline-none disabled:opacity-40"
-                />
-              </div>
-
-              {/* Handover note */}
-              <div>
-                <label className="text-xs font-medium text-zinc-400">Anything about handing it over? (optional)</label>
-                <input
-                  type="text"
-                  value={handoverNote}
-                  onChange={(e) => setHandoverNote(e.target.value)}
-                  placeholder="e.g. I can leave it at the shop on 5th Main"
-                  className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-indigo-400 focus:outline-none"
-                />
-              </div>
+              {/* What did you do with it? — only for found items */}
+              {kind === "found" && (
+                <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.06] p-3">
+                  <label className="flex items-center gap-1.5 text-xs font-semibold text-amber-200">
+                    <Package className="h-3.5 w-3.5" />
+                    What did you do with it?
+                  </label>
+                  <div className="mt-2 space-y-2">
+                    {[
+                      { id: "dropped" as const, label: "🏛️ Dropped it at a known place", hint: "Police station, metro desk, a shop…" },
+                      { id: "holding" as const, label: "🤲 I'm keeping it safe", hint: "You'll give it to whoever proves it's theirs" },
+                      { id: "left" as const, label: "📍 Left it where I found it", hint: "It's still at the spot" },
+                    ].map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => {
+                          setHandoverAction(opt.id);
+                          if (opt.id === "left") setHandoverNote("Left where it was found");
+                          else if (opt.id === "holding") setHandoverNote("The finder is keeping it safe");
+                          else setHandoverNote("");
+                        }}
+                        className={cn(
+                          "w-full rounded-xl border px-3 py-2.5 text-left transition",
+                          handoverAction === opt.id
+                            ? "border-amber-400 bg-amber-500/15 text-amber-100"
+                            : "border-white/10 bg-white/5 text-zinc-300 hover:border-white/25",
+                        )}
+                      >
+                        <p className="text-sm font-semibold">{opt.label}</p>
+                        <p className="mt-0.5 text-[11px] text-zinc-400">{opt.hint}</p>
+                      </button>
+                    ))}
+                  </div>
+                  {handoverAction === "dropped" && (
+                    <input
+                      type="text"
+                      value={handoverNote}
+                      onChange={(e) => setHandoverNote(e.target.value)}
+                      placeholder="Where did you leave it? e.g. Indiranagar Metro lost & found desk"
+                      className="mt-2 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-amber-400/60 focus:outline-none"
+                    />
+                  )}
+                </div>
+              )}
 
               {error && <p className="text-xs text-rose-400">{error}</p>}
 

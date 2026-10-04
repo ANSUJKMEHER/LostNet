@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   X,
@@ -8,18 +8,11 @@ import {
   ThumbsDown,
   Sparkles,
   Info,
-  ShieldCheck,
-  Building2,
-  Coffee,
-  CheckCircle2,
-  Clock,
   MapPin,
-  Lock,
-  MessageSquare,
+  CheckCircle2,
 } from "lucide-react";
-import type { GeoPoint, HandoverMode, HandoverPlan, Item, MatchDimension, MatchRecord } from "@/lib/types";
+import type { HandoverPlan, Item, MatchDimension, MatchRecord } from "@/lib/types";
 import { CategoryChip } from "@/components/board-map";
-import { HANDOVER_TIME_OPTIONS, nearestHandoverPlaces } from "@/lib/handover";
 import { cn } from "@/lib/utils";
 
 interface MatchDialogProps {
@@ -31,10 +24,6 @@ interface MatchDialogProps {
   onConfirm: (handover: HandoverPlan) => void;
   onReject: () => void;
   onClose: () => void;
-  /** Point chosen on the map, owned by the board. */
-  pickedPoint?: GeoPoint | null;
-  /** Asks the board to hide this dialog so the map is tappable. */
-  onRequestMapPick?: () => void;
 }
 
 const DIMENSION_LABELS: Record<MatchDimension, string> = {
@@ -63,30 +52,6 @@ function BreakdownBar({ label, value }: { label: string; value: number }) {
   );
 }
 
-const MODES: Array<{ id: HandoverMode; title: string; blurb: string }> = [
-  {
-    id: "public",
-    title: "A public place nearby",
-    blurb: "Suggestions are sorted by distance from where it was found. Anyone can walk in.",
-  },
-  {
-    id: "map",
-    title: "A place we pick",
-    blurb: "Drop a pin anywhere — a shop counter, a gate, wherever you both agree.",
-  },
-  {
-    id: "finder",
-    title: "The finder keeps it",
-    blurb: "No place needed yet. The claimant shares the token and you arrange it directly.",
-  },
-];
-
-function placeIcon(kind: string) {
-  if (kind === "civic") return <Building2 className="h-4 w-4" />;
-  if (kind === "police") return <ShieldCheck className="h-4 w-4" />;
-  return <Coffee className="h-4 w-4" />;
-}
-
 export default function MatchDialog({
   open,
   a,
@@ -96,34 +61,9 @@ export default function MatchDialog({
   onConfirm,
   onReject,
   onClose,
-  pickedPoint,
-  onRequestMapPick,
 }: MatchDialogProps) {
   const [narration, setNarration] = useState<{ text: string; source: "ai" | "fallback" } | null>(null);
   const [narrating, setNarrating] = useState(false);
-  const [mode, setMode] = useState<HandoverMode>("public");
-  const [selectedPlaceId, setSelectedPlaceId] = useState<string>("");
-  const [mapLabel, setMapLabel] = useState("");
-  const [time, setTime] = useState<string>(HANDOVER_TIME_OPTIONS[0]);
-
-  // Suggested places, nearest to where the item was found.
-  const suggested = useMemo(
-    () => nearestHandoverPlaces(a?.location ?? b?.location ?? null, 3),
-    [a?.location, b?.location],
-  );
-
-  useEffect(() => {
-    if (suggested.length > 0 && !suggested.some((p) => p.id === selectedPlaceId)) {
-      setSelectedPlaceId(suggested[0].id);
-    }
-  }, [suggested, selectedPlaceId]);
-
-  // Prefill the label from whatever the reporter wrote, if anything.
-  useEffect(() => {
-    if (!open) return;
-    const note = a?.handoverNote || b?.handoverNote || "";
-    if (note) setMapLabel(note);
-  }, [open, a?.handoverNote, b?.handoverNote]);
 
   useEffect(() => {
     if (!open) {
@@ -132,14 +72,15 @@ export default function MatchDialog({
     }
   }, [open]);
 
-  const selectedPlace = suggested.find((p) => p.id === selectedPlaceId) ?? null;
-  const hasChallenge = Boolean(a?.secretChallenge || b?.secretChallenge);
+  // The finder already told us what they did with the item at report time.
+  // We just pass that through as the handover plan.
+  const foundItem = a?.kind === "found" ? a : b?.kind === "found" ? b : null;
+  const handoverNote = foundItem?.handoverNote || a?.handoverNote || b?.handoverNote;
 
   const buildPlan = (): HandoverPlan => {
     return {
       mode: "finder",
-      label: mapLabel.trim() || "Agreed in chat",
-      time: "Agreed in chat",
+      label: handoverNote || "Contact the finder",
     };
   };
 
@@ -230,30 +171,6 @@ export default function MatchDialog({
               </div>
             </div>
 
-            {/* Ownership challenge — the question only, never the answer */}
-            <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs text-amber-200">
-              <div className="flex items-center gap-2 font-semibold text-amber-300">
-                <ShieldCheck className="h-4 w-4 shrink-0" />
-                <span className="text-sm">Ownership challenge</span>
-              </div>
-              {hasChallenge ? (
-                <>
-                  <p className="mt-1.5 text-sm font-semibold text-zinc-100">
-                    “{a.secretChallenge || b.secretChallenge}”
-                  </p>
-                  <p className="mt-1 text-zinc-300">
-                    The answer is stored only as a one-way hash — nobody, including this screen, can read it.
-                    Whoever collects the item has to answer it correctly. Two wrong tries locks the handover.
-                  </p>
-                </>
-              ) : (
-                <p className="mt-1.5 text-zinc-300">
-                  No private question was set on either report. The claim token is the only proof of ownership —
-                  add a question next time for a stronger check.
-                </p>
-              )}
-            </div>
-
             {/* confidence */}
             <div className="mt-4 flex items-center justify-between">
               <p className="text-sm text-zinc-400">The board pulls these together</p>
@@ -311,49 +228,16 @@ export default function MatchDialog({
               )}
             </div>
 
-            {/* Handover via Direct Chat */}
-            <div className="mt-5 rounded-2xl border border-indigo-500/30 bg-gradient-to-b from-indigo-950/40 via-zinc-900/70 to-zinc-950/90 p-4 shadow-xl">
-              <div className="flex items-center gap-2.5">
-                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-300 ring-1 ring-indigo-400/40">
-                  <MessageSquare className="h-4 w-4" />
-                </span>
-                <div>
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-200">
-                    Handover via Direct Chat
-                  </h4>
-                  <p className="text-[11px] text-zinc-400">
-                    Finder and owner connect directly to arrange where and when to meet.
-                  </p>
+            {/* Where is the item? — from the finder's report */}
+            {handoverNote && (
+              <div className="mt-4 rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] p-3.5">
+                <div className="flex items-center gap-2 text-xs font-semibold text-emerald-300">
+                  <MapPin className="h-4 w-4 shrink-0" />
+                  <span>Where to pick it up</span>
                 </div>
+                <p className="mt-1.5 text-sm text-zinc-200">{handoverNote}</p>
               </div>
-
-              <div className="mt-3.5 space-y-2 rounded-xl bg-black/40 border border-white/5 p-3 text-xs">
-                <div className="flex items-center gap-2 text-zinc-300">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
-                  <span>A private, token-locked chat thread will open instantly</span>
-                </div>
-                <div className="flex items-center gap-2 text-zinc-300">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
-                  <span>Confirm identifying details and discuss a safe meeting spot</span>
-                </div>
-                <div className="flex items-center gap-2 text-zinc-300">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
-                  <span>No phone numbers or home addresses are shared</span>
-                </div>
-              </div>
-
-              <div className="mt-3">
-                <label className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
-                  Preferred meeting area (optional)
-                </label>
-                <input
-                  value={mapLabel}
-                  onChange={(e) => setMapLabel(e.target.value)}
-                  placeholder="e.g. Near 100 Feet Road, Indiranagar or decide in chat"
-                  className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-indigo-400/50"
-                />
-              </div>
-            </div>
+            )}
 
             {/* actions */}
             <div className="mt-5 flex gap-2">
@@ -366,8 +250,8 @@ export default function MatchDialog({
                   "bg-gradient-to-r from-emerald-400 to-teal-300 shadow-lg shadow-emerald-950/40 hover:brightness-110 disabled:opacity-50",
                 )}
               >
-                <MessageSquare className="h-4 w-4" />
-                {busy ? "Confirming…" : "Yes — Confirm & Open Chat"}
+                <CheckCircle2 className="h-4 w-4" />
+                {busy ? "Confirming…" : "That's mine — confirm!"}
               </button>
               <button
                 type="button"

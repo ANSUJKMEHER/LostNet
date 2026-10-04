@@ -68,6 +68,7 @@ async function main() {
       colors: item.colors,
       materials: item.materials,
       status: item.status,
+      ...(item.handoverNote ? { handoverNote: item.handoverNote } : {}),
     };
     await client.createOrReplace(doc);
   }

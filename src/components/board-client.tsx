@@ -10,15 +10,10 @@ import {
   Heart,
   Info,
   X,
-  SlidersHorizontal,
   Sparkles,
-  ChevronDown,
-  ShieldCheck,
-  LogOut,
-  Building2,
-  Ticket,
   SkipForward,
   CheckCircle2,
+  ShieldCheck,
 } from "lucide-react";
 import BoardMap, { type MatchFlow } from "@/components/board-map";
 import ItemPanel from "@/components/item-panel";
@@ -26,10 +21,7 @@ import ReportDialog from "@/components/report-dialog";
 import MatchDialog from "@/components/match-dialog";
 import CategoryFilter from "@/components/category-filter";
 import ManifestoModal from "@/components/manifesto-modal";
-import CustodyDeskModal from "@/components/custody-desk-modal";
-import ReturnPassModal from "@/components/return-pass-modal";
-import HandoverChatModal from "@/components/handover-chat-modal";
-import type { GeoPoint, HandoverPlan, Item, MatchRecord, NewItemInput, Reunion } from "@/lib/types";
+import type { HandoverPlan, Item, MatchRecord, NewItemInput, Reunion } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useLiveUpdates } from "@/hooks/use-live-updates";
 import { sounds } from "@/lib/audio";
@@ -58,21 +50,13 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
   const [kindFilter, setKindFilter] = useState<"all" | "lost" | "found" | "matched">("all");
   const [mapTheme, setMapTheme] = useState<"dark" | "light">("dark");
   const [manifestoOpen, setManifestoOpen] = useState(false);
-  const [custodyDeskOpen, setCustodyDeskOpen] = useState(false);
-  const [custodyInitialToken, setCustodyInitialToken] = useState<string | undefined>(undefined);
-  const [returnPassOpen, setReturnPassOpen] = useState(false);
-  const [returnPassData, setReturnPassData] = useState<Reunion | null>(null);
-  const [chatModalReunion, setChatModalReunion] = useState<Reunion | null>(null);
   const [demoRunning, setDemoRunning] = useState(false);
-  const [demoStep, setDemoStep] = useState<1 | 2 | 3 | 4 | 5>(1);
+  const [demoStep, setDemoStep] = useState<1 | 2 | 3>(1);
   const timerRef = useRef<number | null>(null);
   const demoTimerRef = useRef<NodeJS.Timeout | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Simulated Google Auth / Citizen Profile State
   const [reportMinimized, setReportMinimized] = useState(false);
-  const [handoverPickActive, setHandoverPickActive] = useState(false);
-  const [pickedHandoverPoint, setPickedHandoverPoint] = useState<GeoPoint | null>(null);
 
   const selected = items.find((i) => i._id === selectedId) ?? null;
 
@@ -175,17 +159,6 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
 
   const { isLive } = useLiveUpdates(refresh);
 
-  // QR deep link: /?custody=%23LN-8492 opens the desk with the token ready.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    const token = params.get("custody");
-    if (token) {
-      setCustodyInitialToken(token);
-      setCustodyDeskOpen(true);
-    }
-  }, []);
-
   const beginFlow = useCallback((a: Item, b: Item, match: MatchRecord) => {
     setSelectedId(null);
     setMatchDialog({ a, b, match });
@@ -220,8 +193,6 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
   const stopDemo = useCallback(() => {
     if (demoTimerRef.current) clearTimeout(demoTimerRef.current);
     setDemoRunning(false);
-    setReturnPassOpen(false);
-    setCustodyDeskOpen(false);
   }, []);
 
   const confirmMatch = useCallback(
@@ -243,20 +214,12 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
         sounds.playReunionChime();
         setMatchDialog(null);
         setFlow(null);
-        setPickedHandoverPoint(null);
-        setHandoverPickActive(false);
 
-        // Open the Handover Chat immediately so finder and owner can talk
         const issued: Reunion | null = data.reunion ?? null;
-        if (issued) {
-          setReturnPassData(issued);
-          setChatModalReunion(issued);
-        }
-
         const place = issued?.handover?.label ?? "the finder";
         flashNotice({
           kind: "reunion",
-          text: `Reunited: "${matchDialog.a.title}" & "${matchDialog.b.title}" · Handover: ${place}`,
+          text: `Reunited! "${matchDialog.a.title}" & "${matchDialog.b.title}" — pick up from ${place}`,
           link: "/reunions",
         });
       } catch (err) {
@@ -275,28 +238,22 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
       const target = items.find((i) => i._id === "lost-01") || items[0];
       if (target) proposeFor(target);
     } else if (demoStep === 2) {
-      confirmMatch({ mode: "public", label: "Indiranagar Metro Station — Gate 2", time: "As soon as we can" });
+      const candidate = items.find((i) => i._id === "found-01");
+      confirmMatch({
+        mode: "finder",
+        label: candidate?.handoverNote || "Handed over to Indiranagar Police Station reception desk",
+      });
       setDemoStep(3);
-    } else if (demoStep === 3) {
-      setReturnPassOpen(false);
-      setCustodyInitialToken(returnPassData?.claimToken);
-      setCustodyDeskOpen(true);
-      setDemoStep(4);
-    } else if (demoStep === 4) {
-      setCustodyDeskOpen(false);
-      setDemoStep(5);
     } else {
       stopDemo();
     }
-  }, [demoStep, items, proposeFor, confirmMatch, returnPassData, stopDemo]);
+  }, [demoStep, items, proposeFor, confirmMatch, stopDemo]);
 
   const runTour = useCallback(async () => {
     if (demoTimerRef.current) clearTimeout(demoTimerRef.current);
     setActiveCategories(new Set());
     setKindFilter("all");
     setSearchQuery("");
-    setReturnPassOpen(false);
-    setCustodyDeskOpen(false);
     setDemoRunning(true);
     setDemoStep(1);
     sounds.playSnap();
@@ -344,11 +301,11 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
         if (data.decision?.top && data.matches?.[0]) {
           beginFlow(target!, data.decision.top.item, data.matches[0]);
 
-          // Step 2: Show match dialog and explain Safe Harbor selection
+          // Step 2: Show match dialog and real-world handover location
           demoTimerRef.current = setTimeout(async () => {
             setDemoStep(2);
 
-            // Auto-confirm match at Indiranagar Metro after 2.8s
+            // Auto-confirm match after 3.2s
             demoTimerRef.current = setTimeout(async () => {
               const matchRecord = data.matches[0];
               const confRes = await fetch(`/api/matches/${matchRecord._id}`, {
@@ -357,9 +314,8 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
                 body: JSON.stringify({
                   decision: "confirmed",
                   handover: {
-                    mode: "public",
-                    label: "Indiranagar Metro Station — Gate 2",
-                    time: "As soon as we can",
+                    mode: "finder",
+                    label: candidate?.handoverNote || "Handed over to Indiranagar Police Station reception desk",
                   },
                 }),
               });
@@ -376,36 +332,26 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
                 sounds.playReunionChime();
                 setMatchDialog(null);
                 setFlow(null);
-
-                // Step 3: Show the Return Pass the server issued
-                const reunionData: Reunion | null = confData.reunion ?? null;
-                if (reunionData) {
-                  setReturnPassData(reunionData);
-                  setReturnPassOpen(true);
-                }
                 setDemoStep(3);
 
-                // Step 4: After 3.5s, open the custody desk with the real token
-                demoTimerRef.current = setTimeout(() => {
-                  setReturnPassOpen(false);
-                  setCustodyInitialToken(reunionData?.claimToken);
-                  setCustodyDeskOpen(true);
-                  setDemoStep(4);
+                flashNotice({
+                  kind: "reunion",
+                  text: `Reunited! "${target.title}" & "${data.decision.top.item.title}" — ready for pickup`,
+                  link: "/reunions",
+                });
 
-                  // Step 5: After 4.5s in Custody Desk, complete tour
-                  demoTimerRef.current = setTimeout(() => {
-                    setDemoStep(5);
-                  }, 4500);
-                }, 3500);
+                demoTimerRef.current = setTimeout(() => {
+                  stopDemo();
+                }, 4500);
               }
-            }, 2800);
+            }, 3200);
           }, 2400);
         }
       } catch {
         setDemoRunning(false);
       }
     }, 800);
-  }, [items, beginFlow, flashNotice]);
+  }, [items, beginFlow, flashNotice, stopDemo]);
 
   const rejectMatch = useCallback(async () => {
     if (!matchDialog) return;
@@ -469,11 +415,6 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
 
   const onMapClick = useCallback(
     (lat: number, lng: number) => {
-      if (handoverPickActive) {
-        setPickedHandoverPoint({ lat, lng });
-        setHandoverPickActive(false);
-        return;
-      }
       if (pinMode) {
         setPin({ lat, lng });
         // Bring the report form back now that the spot is placed.
@@ -482,7 +423,7 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
       }
       setSelectedId(null);
     },
-    [pinMode, handoverPickActive],
+    [pinMode],
   );
 
   return (
@@ -518,11 +459,11 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
                   <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500" />
                 </span>
                 <span className="text-[11px] font-bold uppercase tracking-wider text-amber-300">
-                  Autonomous Demo Tour · Stage {demoStep} of 4
+                  Autonomous Demo Tour · Stage {demoStep} of 3
                 </span>
               </div>
               <div className="flex items-center gap-1.5">
-                {demoStep < 5 && (
+                {demoStep < 3 && (
                   <button
                     type="button"
                     onClick={advanceDemoStep}
@@ -543,9 +484,9 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
               </div>
             </div>
 
-            {/* 4-Step Visual Progress Tracker */}
-            <div className="mt-3 grid grid-cols-4 gap-1.5">
-              {[1, 2, 3, 4].map((step) => {
+            {/* 3-Step Visual Progress Tracker */}
+            <div className="mt-3 grid grid-cols-3 gap-1.5">
+              {[1, 2, 3].map((step) => {
                 const isPassed = demoStep > step;
                 const isCurrent = demoStep === step;
                 return (
@@ -581,47 +522,25 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
               {demoStep === 2 && (
                 <div>
                   <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-1.5">
-                    <span>🏛️ Safe Harbor Selection (Civic Protocol)</span>
+                    <span>🏛️ Real-World Handover Location</span>
                   </h3>
                   <p className="mt-1 text-xs text-zinc-300 leading-relaxed">
-                    Connecting to <strong>Indiranagar Metro (Gate 2 Customer Desk)</strong>. Station officers have existing statutory lost-property duties — LostNet provides the scan-based digital ledger API.
+                    The finder already specified: <strong>Handed over to Indiranagar Police Station reception desk</strong>.
+                    No cumbersome logins, phone numbers, or passwords exchanged.
                   </p>
                 </div>
               )}
 
               {demoStep === 3 && (
                 <div>
-                  <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-1.5">
-                    <span>🎟️ Digital Return Pass Issued</span>
-                  </h3>
-                  <p className="mt-1 text-xs text-zinc-300 leading-relaxed">
-                    A one-time claim token and a real QR code. Scan it with any phone camera to open the custody desk with the token filled in. Zero phone numbers or home addresses are ever exchanged.
-                  </p>
-                </div>
-              )}
-
-              {demoStep === 4 && (
-                <div>
-                  <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-1.5">
-                    <span>🏢 Custody desk — answer checked on the server</span>
-                  </h3>
-                  <p className="mt-1 text-xs text-zinc-300 leading-relaxed">
-                    The desk looks the token up, asks the owner&apos;s private question, and the spoken answer is
-                    verified against a hash on the server. Two wrong tries lock the handover.
-                  </p>
-                </div>
-              )}
-
-              {demoStep === 5 && (
-                <div>
                   <div className="flex items-center gap-2 text-emerald-400">
                     <CheckCircle2 className="h-5 w-5" />
                     <h3 className="text-sm sm:text-base font-bold text-white">
-                      Civic Handover Completed Successfully!
+                      Reunion Confirmed & Recorded!
                     </h3>
                   </div>
                   <p className="mt-1 text-xs text-zinc-300 leading-relaxed">
-                    From lost on 100 Feet Road to verified return at Metro Gate 2 in under 60 seconds with zero liability and zero privacy leaks.
+                    Reunion published to the civic ledger. The owner can directly pick up their keys from the police station desk. Simple, safe, and frictionless.
                   </p>
                   <div className="mt-3 flex items-center justify-end gap-2">
                     <button
@@ -719,18 +638,7 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
               <Sparkles className="h-4 w-4 text-amber-300 shrink-0 animate-pulse" />
               <span className="whitespace-nowrap">Auto Demo</span>
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                setCustodyInitialToken(undefined);
-                setCustodyDeskOpen(true);
-              }}
-              className="ln-glass flex min-h-[42px] items-center gap-1.5 sm:gap-2 rounded-2xl px-2.5 sm:px-3 py-2 text-xs sm:text-sm text-emerald-300 hover:text-emerald-200 border border-emerald-500/30 hover:border-emerald-400/50 shadow-lg shadow-emerald-950/30 transition select-none font-semibold cursor-pointer"
-              title="Open Safe Harbor Custody Desk (Metro / Partner Terminal)"
-            >
-              <Building2 className="h-4 w-4 text-emerald-400 shrink-0" />
-              <span className="hidden sm:inline whitespace-nowrap">Custody Desk</span>
-            </button>
+
             <button
               type="button"
               onClick={async () => {
@@ -918,22 +826,7 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
         )}
       </AnimatePresence>
 
-      {/* Handover point picker hint */}
-      {handoverPickActive && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-6 z-[7] flex justify-center px-4">
-          <div className="ln-glass pointer-events-auto flex items-center gap-3 rounded-2xl border border-indigo-400/30 px-4 py-3 shadow-2xl">
-            <MapPin className="h-4 w-4 text-indigo-300" />
-            <span className="text-sm text-zinc-200">Tap the map to set the handover point</span>
-            <button
-              type="button"
-              onClick={() => setHandoverPickActive(false)}
-              className="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-zinc-200 transition hover:bg-white/20"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
+
 
       {/* Report dialog — hidden while the reporter places the pin on the map */}
       {reportMinimized && (
@@ -975,13 +868,11 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
 
       {/* Match proposal & confirm dialog */}
       <MatchDialog
-        open={Boolean(matchDialog) && !handoverPickActive}
+        open={Boolean(matchDialog)}
         a={matchDialog?.a ?? null}
         b={matchDialog?.b ?? null}
         match={matchDialog?.match ?? null}
         busy={busy}
-        pickedPoint={pickedHandoverPoint}
-        onRequestMapPick={() => setHandoverPickActive(true)}
         onConfirm={confirmMatch}
         onReject={rejectMatch}
         onClose={() => {
@@ -1018,39 +909,8 @@ export default function BoardClient({ items: initialItems, center, reunionCount:
         )}
       </AnimatePresence>
 
-      {/* Return Pass Modal (Airline Boarding Pass UX) */}
-      <ReturnPassModal
-        open={returnPassOpen}
-        onClose={() => setReturnPassOpen(false)}
-        data={returnPassData}
-        onOpenCustodyDesk={(token) => {
-          setCustodyInitialToken(token);
-          setCustodyDeskOpen(true);
-        }}
-        onOpenChat={(r) => setChatModalReunion(r)}
-      />
-
-      {/* Handover Direct Chat Modal */}
-      <HandoverChatModal
-        open={Boolean(chatModalReunion)}
-        onClose={() => setChatModalReunion(null)}
-        reunion={chatModalReunion}
-        onReunionUpdated={refresh}
-      />
-
       {/* Manifesto / Philosophy Modal */}
       <ManifestoModal open={manifestoOpen} onClose={() => setManifestoOpen(false)} />
-
-      {/* Safe Harbor Custody Desk Modal */}
-      <CustodyDeskModal
-        open={custodyDeskOpen}
-        onClose={() => {
-          setCustodyDeskOpen(false);
-        }}
-        initialToken={custodyInitialToken}
-        onReunionUpdated={refresh}
-        onOpenChat={(r) => setChatModalReunion(r)}
-      />
     </div>
   );
 }

@@ -77,7 +77,7 @@ export default function ItemPanel({ item, onClose, onPropose, busy }: ItemPanelP
             <div className="mt-3.5 rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-3 text-xs text-emerald-200">
               <div className="flex items-center gap-1.5 font-semibold text-emerald-300">
                 <MapPin className="h-4 w-4 shrink-0" />
-                <span>Safe Handover Coordinate</span>
+                <span>Current Status / Handover Location</span>
               </div>
               <p className="mt-1.5 text-xs text-zinc-200 leading-relaxed">“{item.handoverNote}”</p>
             </div>

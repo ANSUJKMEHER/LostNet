@@ -16,6 +16,7 @@ import { CATEGORIES } from "../categories";
 import { scoreCandidates } from "../matcher";
 import { buildReunionContent, pairKey } from "../reunion";
 import { hashAnswer, newClaimToken, newSalt, stripItemSecrets, stripReunionSecrets, verifyAnswer } from "../secret";
+import { SEED_ITEMS } from "../seed";
 import type { LostNetData } from "./provider";
 
 /**
@@ -559,6 +560,19 @@ export class SanityProvider implements LostNetData {
     const r = await this.getReunion(reunionId);
     if (!r) throw new Error(`Reunion ${reunionId} not found`);
     return r;
+  }
+
+  async resetDemoData(): Promise<void> {
+    const transaction = this.client.transaction();
+    for (const item of SEED_ITEMS) {
+      transaction.patch(item._id, (p) =>
+        p.set({
+          status: "open",
+          ...(item.handoverNote ? { handoverNote: item.handoverNote } : {}),
+        }),
+      );
+    }
+    await transaction.commit();
   }
 }
 

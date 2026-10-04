@@ -50,6 +50,7 @@ export const SEED_ITEMS: Item[] = [
     colors: ["black", "red"],
     materials: ["metal"],
     status: "open",
+    handoverNote: "Indiranagar Police Station reception desk",
   },
 
   // ---- Ambiguous pair #1: bags ---------------------------------------------
@@ -80,6 +81,7 @@ export const SEED_ITEMS: Item[] = [
     colors: ["grey"],
     materials: [],
     status: "open",
+    handoverNote: "Left where it was found on the bus stop bench",
   },
 
   // ---- Ambiguous pair #2: earbuds --------------------------------------------
@@ -110,6 +112,7 @@ export const SEED_ITEMS: Item[] = [
     colors: ["white"],
     materials: ["plastic", "silicon"],
     status: "open",
+    handoverNote: "The finder is keeping it safe",
   },
 
   // ---- Near-miss pair: jewelry (should NOT match — different sub-kind) --------
@@ -140,6 +143,7 @@ export const SEED_ITEMS: Item[] = [
     colors: ["silver"],
     materials: ["metal"],
     status: "open",
+    handoverNote: "Traffic police kiosk at 80 Feet Road junction",
   },
 
   // ---- Unrelated items --------------------------------------------------------
@@ -170,6 +174,7 @@ export const SEED_ITEMS: Item[] = [
     colors: ["blue"],
     materials: ["nylon"],
     status: "open",
+    handoverNote: "Kept with juice shop cashier counter",
   },
   {
     _id: "lost-06",
@@ -198,6 +203,7 @@ export const SEED_ITEMS: Item[] = [
     colors: ["blue"],
     materials: [],
     status: "open",
+    handoverNote: "Left at the badminton court gate security desk",
   },
   {
     _id: "lost-07",
@@ -226,6 +232,7 @@ export const SEED_ITEMS: Item[] = [
     colors: ["black"],
     materials: ["plastic"],
     status: "open",
+    handoverNote: "Handed to Third Wave café manager",
   },
   {
     _id: "lost-08",
@@ -254,6 +261,7 @@ export const SEED_ITEMS: Item[] = [
     colors: ["black"],
     materials: ["plastic", "glass"],
     status: "open",
+    handoverNote: "Left on Defence Colony park bench",
   },
   {
     _id: "lost-09",
@@ -282,6 +290,7 @@ export const SEED_ITEMS: Item[] = [
     colors: ["gold"],
     materials: ["metal"],
     status: "open",
+    handoverNote: "The finder is keeping it safe",
   },
   {
     _id: "lost-10",
@@ -310,5 +319,6 @@ export const SEED_ITEMS: Item[] = [
     colors: ["brown"],
     materials: ["leather"],
     status: "open",
+    handoverNote: "Dropped at Double Road police chowki",
   },
 ];
