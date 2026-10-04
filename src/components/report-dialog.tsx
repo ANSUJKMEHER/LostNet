@@ -61,7 +61,11 @@ export default function ReportDialog({
   const [description, setDescription] = useState("");
   const [categoryId, setCategoryId] = useState("other");
   const [placeLabel, setPlaceLabel] = useState("");
-  const [occurredAt, setOccurredAt] = useState("");
+  const [occurredAt, setOccurredAt] = useState(() => {
+    const now = new Date();
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    return now.toISOString().slice(0, 16);
+  });
   const [colors, setColors] = useState<string[]>([]);
   const [materials, setMaterials] = useState<string[]>([]);
   const [imageUrl, setImageUrl] = useState("");
@@ -100,7 +104,9 @@ export default function ReportDialog({
     setTitle("");
     setDescription("");
     setPlaceLabel("");
-    setOccurredAt("");
+    const now = new Date();
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    setOccurredAt(now.toISOString().slice(0, 16));
     setColors([]);
     setMaterials([]);
     setImageUrl("");
@@ -136,12 +142,24 @@ export default function ReportDialog({
 
   const submit = async () => {
     setError(null);
-    if (!title.trim() || !description.trim() || !pin || !occurredAt) {
-      setError("A title, a description, a location and a time are required.");
+    if (!title.trim()) {
+      setError("Please enter a title for the item.");
+      return;
+    }
+    if (!description.trim()) {
+      setError("Please add a description so others can identify it.");
+      return;
+    }
+    if (!pin) {
+      setError("Please pin the location on the map or tap 'Use my current location'.");
+      return;
+    }
+    if (!occurredAt) {
+      setError("Please specify approximately when this happened.");
       return;
     }
     if (kind === "found" && !handoverAction) {
-      setError("Please tell us what you did with the item.");
+      setError("Please tell us what you did with the item (kept it safe, left at police station, etc.).");
       return;
     }
     await onSubmit({
