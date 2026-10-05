@@ -3,7 +3,7 @@ title: LostNet — The Neighborhood Lost & Found with Gravitational Resonance & 
 published: true
 description: A map-first civic lost & found board built with Next.js and Sanity. Featuring spatial resonance matching, real-world handovers, and direct coordination chat.
 tags: sanitychallenge, vibecoding, showdev, nextjs
-cover_image: https://raw.githubusercontent.com/ANSUJKMEHER/LostNet/main/public/demo-board.png
+cover_image: https://dev-to-uploads.s3.us-east-2.amazonaws.com/uploads/articles/sb6bcccp4qzxbp0duua0.png
 canonical_url: https://lostnet.vercel.app
 ---
 
