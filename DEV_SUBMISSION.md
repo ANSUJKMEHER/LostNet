@@ -82,6 +82,10 @@ sequenceDiagram
 - 🌐 **Live Application**: [https://lostnet.vercel.app](https://lostnet.vercel.app)
 - 💻 **GitHub Repository**: [https://github.com/ANSUJKMEHER/LostNet](https://github.com/ANSUJKMEHER/LostNet)
 
+### Walkthrough Demo
+
+![LostNet Walkthrough Demo](https://dev-to-uploads.s3.us-east-2.amazonaws.com/uploads/articles/t01gdf50s8acew4u0944.gif)
+
 ### Autonomous Guided Tour (Interactive In-App Demo)
 
 Rather than forcing visitors to watch a pre-recorded clip or manually create dummy items, LostNet includes a built-in **Auto-Demo Mode** directly in the UI. 
