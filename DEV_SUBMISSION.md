@@ -99,7 +99,7 @@ Clicking **"Auto Demo"** in the top navigation activates an automated 3-stage ca
 
 | Interactive Resonance Map | 4-Pillar Match Verification | City Reunions Ledger |
 | :---: | :---: | :---: |
-| ![Live Board View](https://raw.githubusercontent.com/ANSUJKMEHER/LostNet/main/public/demo-board.png) | ![Match Dialog](https://raw.githubusercontent.com/ANSUJKMEHER/LostNet/main/public/demo-match.png) | ![Reunions Wall](https://raw.githubusercontent.com/ANSUJKMEHER/LostNet/main/public/demo-reunions.png) |
+| ![Live Board View](https://dev-to-uploads.s3.us-east-2.amazonaws.com/uploads/articles/sb6bcccp4qzxbp0duua0.png) | ![Match Dialog](https://dev-to-uploads.s3.us-east-2.amazonaws.com/uploads/articles/9705wu9wy0dkm5sukgq0.png) | ![Reunions Wall](https://raw.githubusercontent.com/ANSUJKMEHER/LostNet/main/public/demo-reunions.png) |
 
 ---
 
